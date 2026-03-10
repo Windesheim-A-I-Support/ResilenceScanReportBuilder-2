@@ -24,6 +24,9 @@ $ERROR_LOG  = "$LOG_DIR\setup_error.log"
 # Ensure log directory exists before anything else
 New-Item -ItemType Directory -Force -Path $LOG_DIR | Out-Null
 
+# Signal that setup is in progress so the app can show a helpful message
+"running" | Set-Content "$LOG_DIR\setup_running.flag" -Encoding UTF8
+
 # Capture EVERYTHING (stdout + stderr + errors) to the transcript
 Start-Transcript -Path $TRANSCRIPT -Append -Force | Out-Null
 
@@ -569,6 +572,24 @@ Write-Log "  Transcript : $TRANSCRIPT"
 Write-Log "  Error log  : $ERROR_LOG"
 
 Stop-Transcript | Out-Null
+
+# Write completion flag for the app to read on next launch / while polling
+if ($allOk) {
+    "PASS" | Set-Content "$LOG_DIR\setup_complete.flag" -Encoding UTF8
+} else {
+    "FAIL" | Set-Content "$LOG_DIR\setup_complete.flag" -Encoding UTF8
+}
+Remove-Item "$LOG_DIR\setup_running.flag" -ErrorAction SilentlyContinue
+
+# Best-effort desktop notification for the logged-in user.
+# msg.exe works on Windows Pro/Enterprise from SYSTEM; harmless if unavailable.
+try {
+    if ($allOk) {
+        & cmd /c "msg * /time:300 `"ResilienceScan: setup complete. You can now generate reports.`"" 2>$null
+    } else {
+        & cmd /c "msg * /time:300 `"ResilienceScan: setup finished with errors. See C:\ProgramData\ResilienceScan\setup.log`"" 2>$null
+    }
+} catch { }
 
 # Self-delete the scheduled task now that setup is done
 Unregister-ScheduledTask -TaskName "ResilienceScanSetup" -Confirm:$false -ErrorAction SilentlyContinue

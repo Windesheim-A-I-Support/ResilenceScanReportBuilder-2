@@ -171,6 +171,36 @@ def _find_tlmgr() -> str | None:
     return None
 
 
+def _setup_flag_dir() -> Path:
+    """Return the directory where setup_running.flag / setup_complete.flag are written."""
+    if sys.platform == "win32":
+        return Path(os.environ.get("PROGRAMDATA", "C:/ProgramData")) / "ResilienceScan"
+    return Path("/opt/ResilenceScanReportBuilder")
+
+
+def setup_status() -> str:
+    """Return the current background-setup state.
+
+    Returns one of:
+      'complete_pass' -- setup finished successfully
+      'complete_fail' -- setup finished with errors
+      'running'       -- setup started but has not finished yet
+      'unknown'       -- no flag files found (dev mode, or flags not yet written)
+    """
+    flag_dir = _setup_flag_dir()
+    complete = flag_dir / "setup_complete.flag"
+    running = flag_dir / "setup_running.flag"
+    try:
+        if complete.exists():
+            content = complete.read_text(encoding="utf-8").strip().upper()
+            return "complete_pass" if "PASS" in content else "complete_fail"
+        if running.exists():
+            return "running"
+    except OSError:
+        pass
+    return "unknown"
+
+
 def _r_lib_path() -> Path | None:
     """Return the bundled R library path when frozen (mirrors app/main.py logic)."""
     if getattr(sys, "frozen", False):

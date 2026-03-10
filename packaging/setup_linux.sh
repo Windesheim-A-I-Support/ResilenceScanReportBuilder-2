@@ -14,6 +14,41 @@ R_LIB="$INSTALL_DIR/r-library"
 
 log() { echo "[SETUP] $1"; }
 
+# Default to FAIL; overwritten to PASS only when all steps complete cleanly.
+SETUP_RESULT="FAIL"
+
+# Write running flag immediately so the app knows setup is in progress.
+echo "running" > "$INSTALL_DIR/setup_running.flag"
+chmod a+r "$INSTALL_DIR/setup_running.flag" 2>/dev/null || true
+
+# On any exit (normal or error) write the completion flag and notify the user.
+_on_exit() {
+    echo "$SETUP_RESULT" > "$INSTALL_DIR/setup_complete.flag"
+    chmod a+r "$INSTALL_DIR/setup_complete.flag" 2>/dev/null || true
+    rm -f "$INSTALL_DIR/setup_running.flag"
+    # Best-effort desktop notification for the logged-in user.
+    LOGGED_USER=$(logname 2>/dev/null || true)
+    if [ -n "$LOGGED_USER" ]; then
+        USER_ID=$(id -u "$LOGGED_USER" 2>/dev/null || true)
+        if [ -n "$USER_ID" ]; then
+            if [ "$SETUP_RESULT" = "PASS" ]; then
+                sudo -u "$LOGGED_USER" \
+                    DISPLAY=:0 \
+                    DBUS_SESSION_BUS_ADDRESS="unix:path=/run/user/$USER_ID/bus" \
+                    notify-send "ResilienceScan" "Setup complete. You can now generate reports." \
+                    2>/dev/null || true
+            else
+                sudo -u "$LOGGED_USER" \
+                    DISPLAY=:0 \
+                    DBUS_SESSION_BUS_ADDRESS="unix:path=/run/user/$USER_ID/bus" \
+                    notify-send -u critical "ResilienceScan" "Setup finished with errors. Check /var/log/resilencescan-setup.log" \
+                    2>/dev/null || true
+            fi
+        fi
+    fi
+}
+trap _on_exit EXIT
+
 # -- R ------------------------------------------------------------------------
 if ! command -v Rscript &>/dev/null; then
     log "Installing R from CRAN APT repository..."
@@ -120,6 +155,7 @@ if [ -n "$MISSING" ]; then
     " 2>/dev/null || true)
     if [ -n "$STILL_MISSING" ]; then
         log "ERROR: R packages still missing after retry: $STILL_MISSING"
+        SETUP_RESULT="FAIL"
     else
         log "R package retry succeeded -- all packages present."
     fi
@@ -130,4 +166,5 @@ fi
 # Ensure the R library is readable by all users
 chmod -R a+rX "$R_LIB"
 
+SETUP_RESULT="PASS"
 log "Dependency setup complete."

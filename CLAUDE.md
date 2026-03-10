@@ -250,8 +250,76 @@ Full end-to-end pipeline (R/Quarto/TinyTeX) now reliably passes on Ubuntu + Wind
 
 **Gate:** ✅ 121 tests pass; pushed to main; CI building.
 
+### ✅ M19 — Windows real-machine testing + installer/app fixes (v0.21.19–v0.21.25)
+
+Fresh Windows install of v0.21.18 revealed a series of bugs. All fixed and shipped.
+
+**v0.21.19 — Write-Log crash on line 58**
+- `[FATAL] The term 'Write-Log' is not recognized` — PS5.1 executes top-to-bottom; Write-Log was called at lines 55/58 (inside R-discovery try/catch) before its `function` block at line 87.
+- Fix: moved Write-Log definition to before the first call.
+- Regression test: `test_ps1_write_log_defined_before_first_use` in `test_installer_sanity.py`.
+
+**v0.21.20 — Remove broken R auto-discovery**
+- SYSTEM account has no outbound network → CRAN auto-discovery always failed with `[FATAL] Could not auto-discover R version`.
+- Fix: removed try/catch block entirely; simplified to `$R_VERSION = "4.5.1"` (pinned).
+
+**v0.21.21 — App shows v0.0.0**
+- CI never wrote `app/_version.py` before PyInstaller. `_current_version()` falls through to `"0.0.0"`.
+- Fix: added "Write _version.py" step in `ci.yml` build job before PyInstaller runs.
+- Added `app/_version.py` to `.gitignore`.
+
+**v0.21.22 — Reports saved to hidden AppData folder**
+- Both `generate_single_report_worker` and `generate_reports_thread` hardcoded `REPORTS_DIR` (hidden `AppData\Roaming\ResilienceScan\reports\`), ignoring the output folder shown in the UI.
+- Fix: both now use `out_dir = Path(self.output_folder_var.get())`.
+- Added `[INFO] Output folder:` log at batch start.
+
+**v0.21.23 — NoneType kill race + corrupt temp PDFs**
+- `cancel_generation()` set `self._gen_proc = None` from main thread while generation thread called `.kill()` → `AttributeError: 'NoneType' object has no attribute 'kill'`.
+- xelatex sometimes left a partial PDF (e.g. exit code 3221225786 = STATUS_CONTROL_C_EXIT) that appeared briefly then made quarto crash on rename.
+- Fix: capture `self._gen_proc` in local var with try/except guard; unlink `temp_path` on non-zero returncode.
+
+**v0.21.24 — Default output folder → Documents\ResilienceScanReports**
+- `AppData\Roaming` is hidden by default; users couldn't find their reports.
+- Added `_default_output_dir()` → `Documents\ResilienceScanReports\` (frozen Win/Linux) or `reports/` (dev).
+- `self.output_folder_var` now defaults to `DEFAULT_OUTPUT_DIR`.
+- Success log now shows full path: `[OK] Saved: C:\Users\...\file.pdf`.
+
+**v0.21.25 — Email tab + stats use configured output folder**
+- Email status display, prerequisite check, send loop, preview attachment lookup, and both stats counters all hardcoded `REPORTS_DIR` — showed 0 reports even after generation succeeded.
+- Fix: all replaced with `Path(self.output_folder_var.get())`.
+- Error messages now show the actual folder being searched.
+
+**Gate:** ⏳ Re-test v0.21.25 on Windows — confirm reports appear in Documents, email tab finds them.
+
+### ✅ M20 — Setup completion feedback (v0.21.26)
+
+Background installer gave no feedback — users saw confusing "R NOT FOUND" errors if they opened the app during the 5-20 min setup window.
+
+**Sentinel files:**
+- Both setup scripts write `setup_running.flag` immediately on start.
+- On exit (normal or crash), write `setup_complete.flag` with `PASS` or `FAIL` content, remove running flag.
+- Windows: `C:\ProgramData\ResilienceScan\` — Linux: `/opt/ResilenceScanReportBuilder/`
+
+**`gui_system_check.setup_status()`:**
+- Reads the flags, returns `running` / `complete_pass` / `complete_fail` / `unknown`.
+
+**`_startup_guard()` context-aware dialogs:**
+- `running` → friendly "Setup In Progress" info dialog (not a scary warning).
+- `complete_fail` → "Setup Failed" warning with log path.
+- `unknown` / dev → existing generic "Missing Components" warning unchanged.
+
+**In-app polling (`_poll_setup_completion`):**
+- Fires every 30 s while `running`; updates status bar when flag changes.
+- Status bar shows "Installing dependencies... (5-20 min)" while running, "Setup complete — all dependencies ready." on success, resets to "Ready" after 10 s.
+
+**Desktop notifications (best-effort):**
+- Windows: `msg *` from SYSTEM (works on Pro/Enterprise, silently skipped on Home).
+- Linux: `notify-send` via `sudo -u $LOGGED_USER` with D-Bus session path.
+
+**Gate:** ✅ 122 tests pass; ruff clean.
+
 ---
 
 ## Next milestones
 
-*Windows install test: v0.21.18 release on a fresh Windows machine. Report any errors found.*
+*Re-test v0.21.26 on Windows. Confirm: setup completion flag written, status bar updates, msg * notification fires.*
