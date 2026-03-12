@@ -11,11 +11,11 @@ A Windows/Linux desktop application that generates personalised PDF resilience r
 <!-- DOWNLOAD_LINKS_START -->
 | Platform | Download |
 |----------|----------|
-| Windows | [Windows Installer (.exe)](https://github.com/Windesheim-A-I-Support/ResilenceScanReportBuilder/releases/download/v0.21.40/ResilenceScanReportBuilder-0.21.40-windows-setup.exe) |
-| Windows | [Portable ZIP](https://github.com/Windesheim-A-I-Support/ResilenceScanReportBuilder/releases/download/v0.21.40/ResilenceScanReportBuilder-0.21.40-windows-portable.zip) |
-| Linux | [.deb (Ubuntu/Debian)](https://github.com/Windesheim-A-I-Support/ResilenceScanReportBuilder/releases/download/v0.21.40/ResilenceScanReportBuilder-0.21.40-amd64.deb) |
-| Linux | [AppImage](https://github.com/Windesheim-A-I-Support/ResilenceScanReportBuilder/releases/download/v0.21.40/ResilenceScanReportBuilder-0.21.40-x86_64.AppImage) |
-| Linux | [Tarball (.tar.gz)](https://github.com/Windesheim-A-I-Support/ResilenceScanReportBuilder/releases/download/v0.21.40/ResilenceScanReportBuilder-0.21.40-linux-amd64.tar.gz) |
+| Windows | [Windows Installer (.exe)](https://github.com/Windesheim-A-I-Support/ResilenceScanReportBuilder/releases/download/v0.21.41/ResilenceScanReportBuilder-0.21.41-windows-setup.exe) |
+| Windows | [Portable ZIP](https://github.com/Windesheim-A-I-Support/ResilenceScanReportBuilder/releases/download/v0.21.41/ResilenceScanReportBuilder-0.21.41-windows-portable.zip) |
+| Linux | [.deb (Ubuntu/Debian)](https://github.com/Windesheim-A-I-Support/ResilenceScanReportBuilder/releases/download/v0.21.41/ResilenceScanReportBuilder-0.21.41-amd64.deb) |
+| Linux | [AppImage](https://github.com/Windesheim-A-I-Support/ResilenceScanReportBuilder/releases/download/v0.21.41/ResilenceScanReportBuilder-0.21.41-x86_64.AppImage) |
+| Linux | [Tarball (.tar.gz)](https://github.com/Windesheim-A-I-Support/ResilenceScanReportBuilder/releases/download/v0.21.41/ResilenceScanReportBuilder-0.21.41-linux-amd64.tar.gz) |
 <!-- DOWNLOAD_LINKS_END -->
 
 > Direct download links are updated automatically after each release by CI.  If the links above point to the releases page rather than a specific file, a new release is in progress.
