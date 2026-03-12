@@ -231,6 +231,10 @@ class GenerationMixin:
 
             row = row_data.iloc[0]
 
+            # Validate output folder before closing the dialog
+            if not self._validate_output_folder():
+                return
+
             # Validate record
             validation_result = self.validate_record_for_report(row)
             if not validation_result["is_valid"]:
@@ -487,6 +491,9 @@ class GenerationMixin:
 
         if self.is_generating:
             messagebox.showwarning("Warning", "Generation already in progress")
+            return
+
+        if not self._validate_output_folder():
             return
 
         # Confirm
@@ -921,6 +928,26 @@ class GenerationMixin:
                 except (OSError, AttributeError):
                     pass
 
+    def _validate_output_folder(self) -> bool:
+        """Check that the output folder exists (or can be created) and is writable.
+
+        Shows an error dialog and returns False if the check fails.
+        """
+        folder_path = Path(self.output_folder_var.get())
+        try:
+            folder_path.mkdir(parents=True, exist_ok=True)
+            probe = folder_path / ".write_test"
+            probe.write_text("", encoding="utf-8")
+            probe.unlink()
+            return True
+        except OSError as e:
+            messagebox.showerror(
+                "Output Folder Not Writable",
+                f"Cannot write to the output folder:\n\n{folder_path}\n\n{e}\n\n"
+                "Please choose a different folder using the Browse button.",
+            )
+            return False
+
     def browse_output_folder(self):
         """Browse for output folder and validate it is writable."""
         folder = filedialog.askdirectory(
@@ -928,16 +955,5 @@ class GenerationMixin:
         )
         if not folder:
             return
-        folder_path = Path(folder)
-        try:
-            folder_path.mkdir(parents=True, exist_ok=True)
-            probe = folder_path / ".write_test"
-            probe.write_text("", encoding="utf-8")
-            probe.unlink()
-        except OSError as e:
-            messagebox.showerror(
-                "Folder Not Writable",
-                f"The selected folder cannot be used as the output location:\n\n{e}",
-            )
-            return
         self.output_folder_var.set(folder)
+        self._validate_output_folder()
