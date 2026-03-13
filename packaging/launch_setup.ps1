@@ -60,6 +60,16 @@ $settings  = New-ScheduledTaskSettingsSet `
     -DontStopIfGoingOnBatteries `
     -ExecutionTimeLimit (New-TimeSpan -Hours 2)
 
+$flagFile = "$logDir\setup_complete.flag"
+
+# Remove any stale flag from a previous run before starting the task.
+# Without this, a previous FAIL flag is found instantly on the next run.
+if (Test-Path $flagFile) {
+    Remove-Item $flagFile -Force -ErrorAction SilentlyContinue
+    "[LAUNCHER] Removed stale setup_complete.flag from previous run." |
+        Add-Content $logFile -Encoding UTF8
+}
+
 Register-ScheduledTask -TaskName "ResilienceScanSetup" `
     -Action $action -Principal $principal -Settings $settings -Force | Out-Null
 
@@ -75,7 +85,6 @@ Write-Host "[SETUP] Progress: $logFile"
 # Block until setup_complete.flag is written by setup_dependencies.ps1.
 # Timeout matches the Task Scheduler execution time limit (2 hours).
 # ------------------------------------------------------------------
-$flagFile    = "$logDir\setup_complete.flag"
 $timeoutSecs = 7200   # 2 hours
 $pollSecs    = 5
 $elapsed     = 0

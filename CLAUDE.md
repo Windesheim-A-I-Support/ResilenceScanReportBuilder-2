@@ -173,11 +173,12 @@ emails via Outlook COM (Windows) or SMTP fallback (Office365)
 | M39 | Dead code: `use_outlook` + unreachable else SMTP block removed; local `safe_filename`/`safe_display_name` in `gui_generate.py` replaced with `utils.filename_utils` import; `update_time`/`show_about` moved to `main.py`; `pd.read_csv`/`to_csv` + `encoding="utf-8"` | v0.21.41 |
 | M40 | Test coverage: `test_frozen_paths.py` `_sync_template()` (4 new); `test_app_paths.py` `_check_r_packages_ready()` (5 new); `test_email_send.py` auth-error assertion tightened | v0.21.41 |
 | M41 | Security: `priority_accounts` hardcoded emails moved to `config.yml` `outlook_accounts` key; `setup_linux.sh` Rscript guard + stderr-to-log | v0.21.41 |
+| M42 | Installer: `launch_setup.ps1` deletes stale `setup_complete.flag` before starting task; NSIS checks exit code and shows error dialog on FAIL | v0.21.42 |
 
-**Current version: v0.21.41 — 210 tests, ruff clean**
+**Current version: v0.21.42 — 210 tests, ruff clean**
 
 ---
 
 ## Active milestones
 
-All milestones M1–M41 complete. No active milestones.
+All milestones M1–M42 complete. No active milestones.

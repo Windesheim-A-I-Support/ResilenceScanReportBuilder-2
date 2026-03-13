@@ -264,15 +264,19 @@ jobs:
               File /r "{bundle}\\"
               CreateShortcut "$DESKTOP\\{repo}.lnk" "$INSTDIR\\{repo}.exe"
               WriteUninstaller "$INSTDIR\\Uninstall.exe"
-              ; Run launch_setup.ps1 synchronously (takes < 1 second).
-              ; It registers a Task Scheduler task that runs setup_dependencies.ps1
-              ; as SYSTEM — guaranteed elevated, no UAC prompts, no policy blocks.
-              ; The heavy setup (R, Quarto, TinyTeX, R packages) then runs in the
-              ; background. Progress: C:\ProgramData\ResilienceScan\setup.log
+              ; Run launch_setup.ps1, which registers a Task Scheduler task running
+              ; setup_dependencies.ps1 as SYSTEM (guaranteed elevated, no UAC),
+              ; then blocks until setup_complete.flag is written (up to 2 hours).
+              ; Exit code 0 = PASS, non-zero = FAIL.
+              ; Progress: C:\ProgramData\ResilienceScan\setup.log
               DetailPrint "Scheduling background dependency setup (R, Quarto, TinyTeX)..."
               DetailPrint "Progress: C:\ProgramData\ResilienceScan\setup.log"
               nsExec::ExecToLog '$WINDIR\\System32\\WindowsPowerShell\\v1.0\\powershell.exe -ExecutionPolicy Bypass -NonInteractive -File "$INSTDIR\\_internal\\launch_setup.ps1" -InstallDir "$INSTDIR"'
               Pop $0
+              IntCmp $0 0 setup_ok setup_warn setup_warn
+              setup_warn:
+                MessageBox MB_OK|MB_ICONSTOP "Dependency setup finished with errors.$\nThe application is installed but R, Quarto, and TinyTeX may not be ready.$\nCheck C:\ProgramData\ResilienceScan\setup.log for details."
+              setup_ok:
             SectionEnd
             Section "Uninstall"
               Delete "$DESKTOP\\{repo}.lnk"
