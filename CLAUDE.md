@@ -175,11 +175,12 @@ emails via Outlook COM (Windows) or SMTP fallback (Office365)
 | M41 | Security: `priority_accounts` hardcoded emails moved to `config.yml` `outlook_accounts` key; `setup_linux.sh` Rscript guard + stderr-to-log | v0.21.41 |
 | M42 | Installer: `launch_setup.ps1` deletes stale `setup_complete.flag` before starting task; NSIS checks exit code and shows error dialog on FAIL | v0.21.42 |
 | M43 | Installer smoke test: `installer-smoke` CI job runs the Windows `.exe` silently with a ci_test_mode stub + stale FAIL flag, verifies PASS; gates `publish` | v0.21.43 |
+| M44 | Installer smoke test hardening: file checks (11 files), flag-state checks (PASS/running/error.log), log-content checks (6 patterns + ERROR/FATAL forbidden), reinstall idempotency run | v0.21.44 |
 
-**Current version: v0.21.43 — 210 tests, ruff clean**
+**Current version: v0.21.44 — 210 tests, ruff clean**
 
 ---
 
 ## Active milestones
 
-All milestones M1–M43 complete. No active milestones.
+All milestones M1–M44 complete. No active milestones.

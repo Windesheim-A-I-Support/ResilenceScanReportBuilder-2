@@ -392,6 +392,8 @@ jobs:
     runs-on: windows-latest
     env:
       APP_VERSION: ${{ needs.version-check.outputs.version }}
+      REPO_NAME: ResilenceScanReportBuilder
+      LOG_DIR: C:\ProgramData\ResilienceScan
 
     steps:
       - name: Download Windows installer
@@ -400,63 +402,162 @@ jobs:
           name: release-windows
           path: dist
 
-      - name: Create CI test flags
+      # ── First install: stale-flag path ────────────────────────────────────────
+      - name: Prepare flags (CI test mode + stale FAIL)
         shell: powershell
         run: |
-          $logDir = "C:\ProgramData\ResilienceScan"
-          New-Item -ItemType Directory -Force -Path $logDir | Out-Null
+          New-Item -ItemType Directory -Force -Path $env:LOG_DIR | Out-Null
           # Tells setup_dependencies.ps1 to write PASS immediately (no downloads)
-          Set-Content "$logDir\ci_test_mode.flag"   "CI"   -Encoding UTF8
-          # Stale FAIL flag — verifies launch_setup.ps1 clears it before polling
-          Set-Content "$logDir\setup_complete.flag" "FAIL" -Encoding UTF8
-          Write-Host "Test flags created in $logDir"
+          Set-Content "$env:LOG_DIR\ci_test_mode.flag"   "CI"   -Encoding UTF8
+          # Stale FAIL flag from a previous run — launch_setup.ps1 must delete it
+          Set-Content "$env:LOG_DIR\setup_complete.flag" "FAIL" -Encoding UTF8
+          Write-Host "Test flags written to $env:LOG_DIR"
 
-      - name: Run installer silently
+      - name: Run installer (first install, stale-flag path)
         shell: powershell
         run: |
           $exe = Get-ChildItem dist -Filter "*-windows-setup.exe" | Select-Object -First 1
           if (-not $exe) { Write-Error "Installer .exe not found in dist/"; exit 1 }
-          Write-Host "Running: $($exe.FullName) /S"
+          Write-Host "Executing: $($exe.FullName) /S"
           $proc = Start-Process $exe.FullName -ArgumentList "/S" -Wait -PassThru
-          Write-Host "Installer exit code: $($proc.ExitCode)"
+          Write-Host "Exit code: $($proc.ExitCode)"
           if ($proc.ExitCode -ne 0) {
-            Get-Content "C:\ProgramData\ResilienceScan\setup.log" -ErrorAction SilentlyContinue
-            Write-Error "Installer failed with exit code $($proc.ExitCode)"
+            Get-Content "$env:LOG_DIR\setup.log" -ErrorAction SilentlyContinue
+            Write-Error "Installer exited $($proc.ExitCode)"
             exit $proc.ExitCode
           }
 
-      - name: Verify results
+      - name: Check installed files
         shell: powershell
         run: |
-          $repoName = "ResilenceScanReportBuilder"
-          $appExe   = "$env:PROGRAMFILES\$repoName\$repoName.exe"
-          $flagFile = "C:\ProgramData\ResilienceScan\setup_complete.flag"
+          $inst = "$env:PROGRAMFILES\$env:REPO_NAME"
+          $int  = "$inst\_internal"
+          $fail = 0
 
-          if (-not (Test-Path $appExe)) {
-            Write-Error "App exe not found: $appExe"
+          function ck($p) {
+            if (Test-Path $p) { Write-Host "  OK  $p" }
+            else { Write-Host "MISSING  $p"; $script:fail++ }
+          }
+
+          Write-Host "=== Installed files ==="
+          ck "$inst\$env:REPO_NAME.exe"        # main binary
+          ck "$inst\Uninstall.exe"              # uninstaller
+          ck "$int\launch_setup.ps1"            # installer helper
+          ck "$int\setup_dependencies.ps1"      # dependency setup script
+          ck "$int\ResilienceReport.qmd"        # primary report template
+          ck "$int\SCROLReport.qmd"             # SCROL matrix template
+          ck "$int\references.bib"              # bibliography
+          ck "$int\QTDublinIrish.otf"           # custom font
+          ck "$int\img"                          # images directory
+          ck "$int\tex"                          # LaTeX includes directory
+          ck "$int\_extensions"                  # Quarto extensions
+
+          if ($fail -gt 0) {
+            Write-Error "$fail file(s) missing after installation"
             exit 1
           }
-          Write-Host "OK: app exe found"
+          Write-Host "All expected files present."
 
+      - name: Check flag state
+        shell: powershell
+        run: |
+          $fail = 0
+
+          # setup_complete.flag must contain PASS (not the stale FAIL we planted)
+          $flagFile = "$env:LOG_DIR\setup_complete.flag"
           if (-not (Test-Path $flagFile)) {
-            Write-Error "setup_complete.flag missing — setup_dependencies.ps1 did not run"
-            exit 1
+            Write-Host "MISSING  setup_complete.flag"
+            $fail++
+          } else {
+            $result = (Get-Content $flagFile -Raw) -replace '\s', ''
+            if ($result -eq "PASS") { Write-Host "  OK  setup_complete.flag = PASS" }
+            else { Write-Host "FAIL  setup_complete.flag = $result (expected PASS)"; $fail++ }
           }
-          $result = (Get-Content $flagFile -Raw) -replace '\s', ''
-          Write-Host "setup_complete.flag: $result"
-          if ($result -ne "PASS") {
-            Get-Content "C:\ProgramData\ResilienceScan\setup.log" -ErrorAction SilentlyContinue
-            Write-Error "Expected PASS but got: $result"
-            exit 1
-          }
-          Write-Host "Installer smoke test PASSED"
 
-      - name: Upload setup log
+          # setup_running.flag must be gone (CI test mode removes it)
+          if (Test-Path "$env:LOG_DIR\setup_running.flag") {
+            Write-Host "FAIL  setup_running.flag still present"
+            $fail++
+          } else { Write-Host "  OK  setup_running.flag removed" }
+
+          # setup_error.log must not exist (no unhandled errors)
+          if (Test-Path "$env:LOG_DIR\setup_error.log") {
+            Write-Host "FAIL  setup_error.log exists (unhandled error):"
+            Get-Content "$env:LOG_DIR\setup_error.log"
+            $fail++
+          } else { Write-Host "  OK  no setup_error.log" }
+
+          if ($fail -gt 0) { exit 1 }
+          Write-Host "Flag state OK."
+
+      - name: Check log content
+        shell: powershell
+        run: |
+          $logFile = "$env:LOG_DIR\setup.log"
+          if (-not (Test-Path $logFile)) {
+            Write-Error "setup.log not found — launch_setup.ps1 did not run"
+            exit 1
+          }
+          $log  = Get-Content $logFile -Raw
+          $fail = 0
+
+          function expect($pat, $desc) {
+            if ($log -match $pat) { Write-Host "  OK  $desc" }
+            else { Write-Host "MISSING  $desc  (pattern: $pat)"; $script:fail++ }
+          }
+          function forbid($pat, $desc) {
+            if ($log -match $pat) { Write-Host "FAIL  $desc found in log"; $script:fail++ }
+            else { Write-Host "  OK  no $desc" }
+          }
+
+          Write-Host "=== Log checks ==="
+          # launch_setup.ps1 entries
+          expect "Removed stale setup_complete\.flag" "stale-flag cleanup logged"
+          expect "Task started\. Waiting for completion"  "task start logged"
+          expect "Setup finished with result: PASS"       "PASS result logged"
+          # setup_dependencies.ps1 entry (proves SYSTEM task ran our script)
+          expect "CI test mode active"                    "CI test mode triggered"
+          # No errors
+          forbid "\[ERROR\]"  "[ERROR] in log"
+          forbid "\[FATAL\]"  "[FATAL] in log"
+
+          Write-Host "=== setup.log ==="
+          Write-Host $log
+
+          if ($fail -gt 0) {
+            Write-Error "$fail log check(s) failed"
+            exit 1
+          }
+          Write-Host "Log checks passed."
+
+      # ── Second install: reinstall / idempotency path ──────────────────────────
+      - name: Run installer (reinstall, no stale flag)
+        shell: powershell
+        run: |
+          # ci_test_mode.flag is still present; no stale flag this time.
+          # Verifies the clean-path: launch_setup.ps1 skips stale-flag removal,
+          # task runs again, setup_dependencies.ps1 writes PASS again.
+          $exe  = Get-ChildItem dist -Filter "*-windows-setup.exe" | Select-Object -First 1
+          $proc = Start-Process $exe.FullName -ArgumentList "/S" -Wait -PassThru
+          Write-Host "Reinstall exit code: $($proc.ExitCode)"
+          if ($proc.ExitCode -ne 0) {
+            Get-Content "$env:LOG_DIR\setup.log" -ErrorAction SilentlyContinue
+            Write-Error "Reinstall failed with exit code $($proc.ExitCode)"
+            exit $proc.ExitCode
+          }
+          $result = (Get-Content "$env:LOG_DIR\setup_complete.flag" -Raw) -replace '\s', ''
+          if ($result -ne "PASS") {
+            Write-Error "Reinstall: expected PASS but got: $result"
+            exit 1
+          }
+          Write-Host "Reinstall smoke PASSED."
+
+      - name: Upload logs (always)
         if: always()
         uses: actions/upload-artifact@v4
         with:
           name: installer-smoke-log
-          path: C:\ProgramData\ResilienceScan\*.log
+          path: C:\ProgramData\ResilienceScan\
 
   # ── Create the GitHub Release and attach all artifacts ───────────────────────
   publish:
