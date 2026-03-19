@@ -235,20 +235,7 @@ class DataMixin(QualityMixin):
         )
         self.quality_text.grid(row=0, column=0, columnspan=2, sticky=(tk.W, tk.E))
 
-        ttk.Button(
-            quality_frame,
-            text="\U0001f50d Run Quality Dashboard",
-            command=self.run_quality_dashboard,
-        ).grid(row=1, column=0, sticky=tk.W, pady=(5, 0))
-
-        ttk.Button(
-            quality_frame,
-            text="\U0001f9f9 Run Data Cleaner",
-            command=self.run_data_cleaner,
-        ).grid(row=1, column=1, sticky=tk.W, pady=(5, 0), padx=(10, 0))
-
         quality_frame.columnconfigure(0, weight=1)
-        quality_frame.columnconfigure(1, weight=1)
 
         # Data preview
         preview_frame = ttk.LabelFrame(data_tab, text="Data Preview", padding=10)
