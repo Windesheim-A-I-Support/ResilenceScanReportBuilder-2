@@ -150,6 +150,9 @@ jobs:
           # Persist bin dir for subsequent steps (quarto render may need tlmgr)
           echo "$TLMGR_DIR" >> "$GITHUB_PATH"
 
+          # Self-update tlmgr before installing packages (CTAN may have moved ahead)
+          "$TLMGR" update --self || true
+
           "$TLMGR" install \
             pgf xcolor colortbl booktabs multirow float wrapfig pdflscape \
             geometry preprint graphics tabu threeparttable threeparttablex \
