@@ -1,5 +1,10 @@
 name: CI / Release
 
+# Every push to main runs lint+test, then detects whether a new release is
+# needed.  If the version in pyproject.toml does not yet have a matching git
+# tag, the build matrix fires on Windows and Linux and a GitHub Release is
+# created automatically.  PRs only run lint+test.
+
 on:
   push:
     branches: [main]
@@ -10,6 +15,7 @@ permissions:
   contents: write
 
 jobs:
+  # ── Lint + Test ──────────────────────────────────────────────────────────────
   test:
     strategy:
       matrix:
@@ -17,9 +23,62 @@ jobs:
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
-      - name: Hello
-        run: echo "alive"
 
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+          cache: pip
+
+      - name: Install system libraries (Linux only)
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y --no-install-recommends python3-tk tk-dev
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+          pip install pytest ruff pyyaml
+
+      - name: Lint
+        run: ruff check .
+
+      - name: Format check
+        run: ruff format --check .
+
+      - name: Test
+        run: pytest --maxfail=1 --disable-warnings -q
+
+      - name: Check PS1 script (syntax + encoding)
+        shell: pwsh
+        run: |
+          # PowerShell 5.1 on Windows reads .ps1 files as Windows-1252.
+          # Non-ASCII bytes (e.g. UTF-8 em dash E2 80 94) contain 0x94 which
+          # Win-1252 maps to a right double-quote, silently closing strings and
+          # producing cryptic parse errors on the target machine.
+          # This check rejects any non-ASCII character before it can ship.
+          $ps1 = "packaging/setup_dependencies.ps1"
+          $content = Get-Content $ps1 -Raw
+          $hits = [regex]::Matches($content, '[^\x00-\x7F]')
+          if ($hits.Count -gt 0) {
+            foreach ($m in $hits) {
+              $cp = [int][char]$m.Value[0]
+              Write-Host "::error file=${ps1}::Non-ASCII char U+$($cp.ToString('X4')) at byte offset $($m.Index) -- use ASCII equivalent"
+            }
+            exit 1
+          }
+          # Full syntax parse via PowerShell's own parser
+          $parseErrors = $null
+          $null = [System.Management.Automation.Language.Parser]::ParseFile(
+            (Resolve-Path $ps1).Path, [ref]$null, [ref]$parseErrors)
+          if ($parseErrors.Count -gt 0) {
+            foreach ($e in $parseErrors) { Write-Host "::error file=${ps1}::$e" }
+            exit 1
+          }
+          Write-Host "PS1 check passed: ASCII-clean and syntax OK."
+
+  # ── Detect whether a new release is needed ───────────────────────────────────
   version-check:
     needs: test
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
@@ -27,11 +86,13 @@ jobs:
     outputs:
       release: ${{ steps.check.outputs.release }}
       version: ${{ steps.check.outputs.version }}
+
     steps:
       - uses: actions/checkout@v4
         with:
-          fetch-depth: 0
-      - name: Check version
+          fetch-depth: 0   # need full tag history
+
+      - name: Check if version tag already exists
         id: check
         run: |
           VERSION=$(python - <<'EOF'
@@ -40,14 +101,22 @@ jobs:
           print(m.group(1) if m else '')
           EOF
           )
-          if [ -z "$VERSION" ]; then echo "release=false" >> "$GITHUB_OUTPUT"; exit 0; fi
+
+          if [ -z "$VERSION" ]; then
+            echo "release=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
           if git tag --list | grep -qx "v${VERSION}"; then
+            echo "Tag v${VERSION} already exists — skipping release."
             echo "release=false" >> "$GITHUB_OUTPUT"
           else
-            echo "release=true" >> "$GITHUB_OUTPUT"
+            echo "New version v${VERSION} detected — will release."
+            echo "release=true"    >> "$GITHUB_OUTPUT"
             echo "version=${VERSION}" >> "$GITHUB_OUTPUT"
           fi
 
+  # ── Build artifacts: Windows and Linux ───────────────────────────────────────
   build:
     needs: version-check
     if: needs.version-check.outputs.release == 'true'
@@ -59,37 +128,661 @@ jobs:
             artifact: windows
           - os: ubuntu-latest
             artifact: linux
+          - os: macos-latest
+            artifact: macos
     runs-on: ${{ matrix.os }}
     env:
       APP_VERSION: ${{ needs.version-check.outputs.version }}
+
     steps:
       - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+          cache: pip
+
       - name: Set repo name
         shell: bash
         run: echo "REPO_NAME=${GITHUB_REPOSITORY#*/}" >> "$GITHUB_ENV"
-      - name: Build placeholder
-        run: echo "build ${{ matrix.artifact }}"
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+          pip install pyinstaller
+
+      - name: Install Linux system libraries
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y --no-install-recommends python3-tk tk-dev
+
+      - name: Install macOS Tcl/Tk for tkinter
+        if: runner.os == 'macOS'
+        run: brew install tcl-tk || true
+
+      # ── macOS: bundle R, Quarto, TinyTeX, R packages at build time ──────────
+      # This produces a self-contained app with zero external dependencies.
+      # R.framework is copied from the CRAN install; Rscript has a hardcoded
+      # dylib path so we set DYLD_FALLBACK_LIBRARY_PATH at runtime to let it
+      # find the bundled dylib when no system R is present.
+      - name: Bundle R, Quarto, TinyTeX and R packages (macOS)
+        if: runner.os == 'macOS'
+        run: |
+          set -e
+          ARCH=$(uname -m)
+          R_VERSION="4.5.1"
+          QUARTO_VERSION="1.6.39"
+          NCPUS=$(sysctl -n hw.logicalcpu)
+
+          # ── R ──────────────────────────────────────────────────────────
+          if [ "$ARCH" = "arm64" ]; then
+            R_URL="https://cran.r-project.org/bin/macosx/big-sur-arm64/base/R-${R_VERSION}-arm64.pkg"
+          else
+            R_URL="https://cran.r-project.org/bin/macosx/big-sur-x86_64/base/R-${R_VERSION}-x86_64.pkg"
+          fi
+          echo "Downloading R ${R_VERSION} for ${ARCH}..."
+          curl -fsSL -o /tmp/R.pkg "$R_URL"
+          sudo installer -pkg /tmp/R.pkg -target /
+          Rscript --version
+
+          # ── R packages (to r-library/ next to the executable) ──────────
+          echo "Installing R packages to r-library/ ..."
+          mkdir -p r-library
+          Rscript -e "
+            pkgs <- c('readr','dplyr','stringr','tidyr','ggplot2','knitr','fmsb',
+                      'scales','viridis','patchwork','RColorBrewer','gridExtra',
+                      'png','lubridate','kableExtra','rmarkdown','jsonlite',
+                      'ggrepel','cowplot')
+            install.packages(pkgs, lib='r-library',
+              repos='https://cloud.r-project.org', Ncpus=${NCPUS}, quiet=FALSE)
+          "
+          echo "Verifying R packages..."
+          MISSING=$(Rscript --no-save -e "
+            .libPaths(c('r-library', .libPaths()))
+            pkgs <- c('readr','dplyr','stringr','tidyr','ggplot2','knitr','fmsb',
+                      'scales','viridis','patchwork','RColorBrewer','gridExtra',
+                      'png','lubridate','kableExtra','rmarkdown','jsonlite',
+                      'ggrepel','cowplot')
+            bad <- pkgs[!sapply(pkgs, requireNamespace, quietly=TRUE)]
+            cat(paste(bad, collapse=' '))
+          " 2>&1)
+          if [ -n "$MISSING" ]; then
+            echo "ERROR: R packages missing after install: $MISSING"; exit 1
+          fi
+          echo "All R packages verified."
+
+          # ── R framework (copy for bundling) ─────────────────────────────
+          echo "Copying R.framework for bundling..."
+          mkdir -p macos-bundled
+          cp -rp /Library/Frameworks/R.framework macos-bundled/R.framework
+
+          # ── Quarto ──────────────────────────────────────────────────────
+          echo "Downloading Quarto ${QUARTO_VERSION}..."
+          curl -fsSL -o /tmp/quarto.pkg \
+            "https://github.com/quarto-dev/quarto-cli/releases/download/v${QUARTO_VERSION}/quarto-${QUARTO_VERSION}-macos.pkg"
+          sudo installer -pkg /tmp/quarto.pkg -target /
+          # Find install location
+          QUARTO_INSTALL=""
+          for candidate in /Applications/quarto /usr/local/share/quarto /opt/quarto; do
+            if [ -d "$candidate" ]; then QUARTO_INSTALL="$candidate"; break; fi
+          done
+          if [ -z "$QUARTO_INSTALL" ]; then
+            echo "ERROR: Quarto install dir not found"; exit 1
+          fi
+          echo "Quarto installed at: $QUARTO_INSTALL"
+          cp -rp "$QUARTO_INSTALL" macos-bundled/quarto
+          "$QUARTO_INSTALL/bin/quarto" --version
+
+          # ── TinyTeX ─────────────────────────────────────────────────────
+          echo "Installing TinyTeX via Quarto..."
+          "$QUARTO_INSTALL/bin/quarto" install tinytex --no-prompt
+          # Find TinyTeX directory
+          TINYTEX_SRC=""
+          for candidate in \
+            "$HOME/Library/Application Support/quarto/tools/tinytex" \
+            "$HOME/.TinyTeX" \
+            "$HOME/.local/share/quarto/tools/tinytex"; do
+            if [ -d "$candidate" ]; then TINYTEX_SRC="$candidate"; break; fi
+          done
+          if [ -z "$TINYTEX_SRC" ]; then
+            echo "ERROR: TinyTeX directory not found after install"; exit 1
+          fi
+          echo "TinyTeX found at: $TINYTEX_SRC"
+          cp -rp "$TINYTEX_SRC" macos-bundled/tinytex
+          echo "macOS bundling complete."
+          du -sh macos-bundled/
+
+      # ── Windows ──────────────────────────────────────────────────────────────
+      - name: Write _version.py
+        shell: python
+        run: |
+          import os
+          ver = os.environ["APP_VERSION"]
+          with open("app/_version.py", "w") as f:
+              f.write(f'__version__ = "{ver}"\n')
+          print(f"Wrote app/_version.py: {ver}")
+
+      - name: Generate Windows version resource
+        if: runner.os == 'Windows'
+        shell: python
+        run: |
+          import os, textwrap
+          v = os.environ["APP_VERSION"].split(".")
+          major = int(v[0]); minor = int(v[1] if len(v)>1 else 0); patch = int(v[2] if len(v)>2 else 0)
+          repo = os.environ["REPO_NAME"]; ver = os.environ["APP_VERSION"]
+          txt = textwrap.dedent(f"""
+            VSVersionInfo(
+              ffi=FixedFileInfo(
+                filevers=({major},{minor},{patch},0), prodvers=({major},{minor},{patch},0),
+                mask=0x3f, flags=0x0, OS=0x40004, fileType=0x1, subtype=0x0, date=(0,0)),
+              kids=[
+                StringFileInfo([StringTable(u'040904B0',[
+                  StringStruct(u'CompanyName',      u''),
+                  StringStruct(u'FileDescription',  u'{repo}'),
+                  StringStruct(u'FileVersion',      u'{ver}'),
+                  StringStruct(u'InternalName',     u'{repo}'),
+                  StringStruct(u'OriginalFilename', u'{repo}.exe'),
+                  StringStruct(u'ProductName',      u'{repo}'),
+                  StringStruct(u'ProductVersion',   u'{ver}'),
+                ])]),
+                VarFileInfo([VarStruct(u'Translation',[1033,1200])])
+              ])
+          """).strip()
+          os.makedirs("packaging", exist_ok=True)
+          open("packaging/windows-version.txt","w").write(txt)
+
+      - name: Build Windows app (onedir)
+        if: runner.os == 'Windows'
+        shell: powershell
+        run: |
+          $icon = if (Test-Path "assets/icon.ico") { @("--icon","assets/icon.ico") } else { @() }
+          pyinstaller --clean --noconfirm --onedir --windowed `
+            @icon `
+            --version-file packaging/windows-version.txt `
+            --name "$env:REPO_NAME" `
+            --hidden-import tkinter `
+            --hidden-import _tkinter `
+            --add-data "ResilienceReport.qmd;." `
+            --add-data "SCROLReport.qmd;." `
+            --add-data "img;img" `
+            --add-data "tex;tex" `
+            --add-data "_extensions;_extensions" `
+            --add-data "references.bib;." `
+            --add-data "QTDublinIrish.otf;." `
+            --add-data "packaging/setup_dependencies.ps1;." `
+            --add-data "packaging/launch_setup.ps1;." `
+            app/main.py
+
+      - name: Install NSIS
+        if: runner.os == 'Windows'
+        shell: powershell
+        run: |
+          # Search pre-installed locations first
+          $candidates = @(
+            "C:\Program Files (x86)\NSIS\makensis.exe",
+            "C:\Program Files\NSIS\makensis.exe"
+          )
+          $found = $candidates | Where-Object { Test-Path $_ } | Select-Object -First 1
+          if (-not $found) {
+            $cmd = Get-Command makensis -ErrorAction SilentlyContinue
+            $found = if ($cmd) { $cmd.Source } else { $null }
+          }
+          if (-not $found) {
+            Write-Host "NSIS not pre-installed, trying winget..."
+            winget install NSIS.NSIS --silent `
+              --accept-source-agreements --accept-package-agreements
+            Write-Host "winget done (rc=$LASTEXITCODE)"   # reset last-exit
+            $found = $candidates | Where-Object { Test-Path $_ } | Select-Object -First 1
+          }
+          if (-not $found) {
+            Write-Host "::error::makensis.exe not found in any expected location"
+            exit 1
+          }
+          Write-Host "NSIS: $found"
+          echo "MAKENSIS=$found" >> $env:GITHUB_ENV
+
+      - name: Build Windows installer
+        if: runner.os == 'Windows'
+        shell: python
+        run: |
+          import os, subprocess, shutil, textwrap
+          repo = os.environ["REPO_NAME"]
+          ver  = os.environ["APP_VERSION"]
+          # Use absolute paths: NSIS defaults CWD to the script's directory,
+          # so relative paths like "dist\foo\" would resolve under packaging\.
+          ws     = os.environ.get("GITHUB_WORKSPACE", os.getcwd())
+          dist   = os.path.join(ws, "dist")
+          bundle = os.path.join(dist, repo)
+          nsi = textwrap.dedent(f"""
+            Unicode true
+            Name "{repo} {ver}"
+            OutFile "{dist}\\{repo}-{ver}-windows-setup.exe"
+            InstallDir "$PROGRAMFILES64\\{repo}"
+            RequestExecutionLevel admin
+            Page directory
+            Page instfiles
+            Section
+              SetOutPath "$INSTDIR"
+              File /r "{bundle}\\"
+              CreateShortcut "$DESKTOP\\{repo}.lnk" "$INSTDIR\\{repo}.exe"
+              WriteUninstaller "$INSTDIR\\Uninstall.exe"
+              ; Run launch_setup.ps1, which registers a Task Scheduler task running
+              ; setup_dependencies.ps1 as SYSTEM (guaranteed elevated, no UAC),
+              ; then blocks until setup_complete.flag is written (up to 2 hours).
+              ; Exit code 0 = PASS, non-zero = FAIL.
+              ; Progress: C:\\ProgramData\\ResilienceScan\\setup.log
+              DetailPrint "Scheduling background dependency setup (R, Quarto, TinyTeX)..."
+              DetailPrint "Progress: C:\\ProgramData\\ResilienceScan\\setup.log"
+              nsExec::ExecToLog '$WINDIR\\System32\\WindowsPowerShell\\v1.0\\powershell.exe -ExecutionPolicy Bypass -NonInteractive -File "$INSTDIR\\_internal\\launch_setup.ps1" -InstallDir "$INSTDIR"'
+              Pop $0
+              IntCmp $0 0 setup_ok setup_warn setup_warn
+              setup_warn:
+                MessageBox MB_OK|MB_ICONSTOP "Dependency setup finished with errors.$\\nThe application is installed but R, Quarto, and TinyTeX may not be ready.$\\nCheck C:\\ProgramData\\ResilienceScan\\setup.log for details."
+              setup_ok:
+            SectionEnd
+            Section "Uninstall"
+              Delete "$DESKTOP\\{repo}.lnk"
+              Delete "$INSTDIR\\Uninstall.exe"
+              RMDir /r "$INSTDIR"
+            SectionEnd
+          """).lstrip()
+          os.makedirs("packaging", exist_ok=True)
+          with open("packaging\\installer.nsi", "w", encoding="utf-8") as f:
+              f.write(nsi)
+          makensis = os.environ.get("MAKENSIS") \
+                  or shutil.which("makensis") \
+                  or r"C:\Program Files (x86)\NSIS\makensis.exe"
+          subprocess.run([makensis, "packaging\\installer.nsi"], check=True)
+
+      - name: Package Windows portable zip
+        if: runner.os == 'Windows'
+        shell: powershell
+        run: |
+          Compress-Archive -Path "dist\$env:REPO_NAME\*" `
+            -DestinationPath "dist\$env:REPO_NAME-$env:APP_VERSION-windows-portable.zip"
+
+      # ── Linux ─────────────────────────────────────────────────────────────────
+      - name: Build Linux app (onedir)
+        if: runner.os == 'Linux'
+        run: |
+          pyinstaller --clean --noconfirm --onedir \
+            --name "$REPO_NAME" \
+            --hidden-import tkinter \
+            --hidden-import _tkinter \
+            --add-data "ResilienceReport.qmd:." \
+            --add-data "SCROLReport.qmd:." \
+            --add-data "img:img" \
+            --add-data "tex:tex" \
+            --add-data "_extensions:_extensions" \
+            --add-data "references.bib:." \
+            --add-data "QTDublinIrish.otf:." \
+            app/main.py
+
+      - name: Generate .desktop file
+        if: runner.os == 'Linux'
+        run: |
+          APP_NAME=$(echo "$REPO_NAME" | sed 's/-/ /g; s/\b./\u&/g')
+          export APP_NAME
+          envsubst < packaging/template.desktop > "packaging/${REPO_NAME}.desktop"
+
+      - name: Package Linux tarball
+        if: runner.os == 'Linux'
+        run: |
+          tar -czf "dist/${REPO_NAME}-${APP_VERSION}-linux-amd64.tar.gz" \
+            -C dist "${REPO_NAME}"
+
+      - name: Package AppImage
+        if: runner.os == 'Linux'
+        run: |
+          mkdir -p AppDir/usr/bin
+          # Copy the full onedir bundle into the AppImage
+          cp -r "dist/$REPO_NAME/"* AppDir/usr/bin/
+          cp "packaging/${REPO_NAME}.desktop" AppDir/
+          if [ -f "assets/icon.png" ]; then
+            cp assets/icon.png "AppDir/${REPO_NAME}.png"
+          else
+            python -c "
+          import struct, zlib
+          def chunk(t,d):
+            c=struct.pack('>I',len(d))+t+d
+            return c+struct.pack('>I',zlib.crc32(c[4:])&0xffffffff)
+          sig=b'\x89PNG\r\n\x1a\n'
+          open('AppDir/${REPO_NAME}.png','wb').write(
+            sig+chunk(b'IHDR',struct.pack('>IIBBBBB',1,1,8,2,0,0,0))
+               +chunk(b'IDAT',zlib.compress(b'\x00\xff\x00\x00'))
+               +chunk(b'IEND',b''))"
+          fi
+          wget -q https://github.com/AppImage/appimagetool/releases/download/continuous/appimagetool-x86_64.AppImage
+          chmod +x appimagetool-x86_64.AppImage
+          ARCH=x86_64 ./appimagetool-x86_64.AppImage --appimage-extract-and-run \
+            AppDir "dist/${REPO_NAME}-${APP_VERSION}-x86_64.AppImage"
+
+      - name: Build .deb package
+        if: runner.os == 'Linux'
+        run: |
+          chmod +x packaging/postinst.sh
+          PKG_NAME=$(echo "${REPO_NAME}" | tr '[:upper:]' '[:lower:]' | tr '_' '-')
+          DEB_ROOT="$(pwd)/deb_build"
+          mkdir -p "${DEB_ROOT}/DEBIAN"
+          mkdir -p "${DEB_ROOT}/opt/${REPO_NAME}"
+          mkdir -p "${DEB_ROOT}/usr/bin"
+          mkdir -p "${DEB_ROOT}/usr/share/applications"
+          cp -r "dist/${REPO_NAME}/." "${DEB_ROOT}/opt/${REPO_NAME}/"
+          cp packaging/setup_linux.sh "${DEB_ROOT}/opt/${REPO_NAME}/setup_linux.sh"
+          chmod 755 "${DEB_ROOT}/opt/${REPO_NAME}/setup_linux.sh"
+          ln -s "/opt/${REPO_NAME}/${REPO_NAME}" "${DEB_ROOT}/usr/bin/${REPO_NAME}"
+          cp "packaging/${REPO_NAME}.desktop" "${DEB_ROOT}/usr/share/applications/"
+          printf 'Package: %s\nVersion: %s\nArchitecture: amd64\nMaintainer: Windesheim <info@windesheim.nl>\nDescription: ResilienceScan Control Center\n' \
+            "$PKG_NAME" "$APP_VERSION" > "${DEB_ROOT}/DEBIAN/control"
+          cp packaging/postinst.sh "${DEB_ROOT}/DEBIAN/postinst"
+          chmod 755 "${DEB_ROOT}/DEBIAN/postinst"
+          dpkg-deb --build --root-owner-group "${DEB_ROOT}" \
+            "dist/${REPO_NAME}-${APP_VERSION}-amd64.deb"
+
+      # ── macOS ─────────────────────────────────────────────────────────────────
+      - name: Build macOS app (onedir, fully bundled)
+        if: runner.os == 'macOS'
+        run: |
+          pyinstaller --clean --noconfirm --onedir \
+            --name "$REPO_NAME" \
+            --hidden-import tkinter \
+            --hidden-import _tkinter \
+            --add-data "ResilienceReport.qmd:." \
+            --add-data "SCROLReport.qmd:." \
+            --add-data "img:img" \
+            --add-data "tex:tex" \
+            --add-data "_extensions:_extensions" \
+            --add-data "references.bib:." \
+            --add-data "QTDublinIrish.otf:." \
+            --add-data "packaging/setup_macos.sh:." \
+            --add-data "macos-bundled/R.framework:bundled/R.framework" \
+            --add-data "macos-bundled/quarto:bundled/quarto" \
+            --add-data "macos-bundled/tinytex:bundled/tinytex" \
+            app/main.py
+
+      - name: Copy r-library next to executable (macOS)
+        if: runner.os == 'macOS'
+        run: cp -rp r-library "dist/${REPO_NAME}/r-library"
+
+      - name: Package macOS tarball
+        if: runner.os == 'macOS'
+        run: |
+          ARCH=$(uname -m)
+          tar -czf "dist/${REPO_NAME}-${APP_VERSION}-macos-${ARCH}.tar.gz" \
+            -C dist "${REPO_NAME}"
+
       - uses: actions/upload-artifact@v4
         with:
           name: release-${{ matrix.artifact }}
           path: dist/*
-          if-no-files-found: ignore
 
-  publish:
+  # ── Installer smoke test: run the Windows .exe and verify PASS ───────────────
+  # Plants a stale FAIL flag before running so we also verify that
+  # launch_setup.ps1 deletes stale flags before starting the task.
+  # setup_dependencies.ps1 detects ci_test_mode.flag and writes PASS instantly
+  # (skipping all downloads), so the full flow completes in ~30 seconds.
+  installer-smoke:
     needs: [version-check, build]
     if: needs.version-check.outputs.release == 'true'
+    runs-on: windows-latest
+    env:
+      APP_VERSION: ${{ needs.version-check.outputs.version }}
+      REPO_NAME: ResilenceScanReportBuilder
+      LOG_DIR: C:\ProgramData\ResilienceScan
+
+    steps:
+      - name: Download Windows installer
+        uses: actions/download-artifact@v4
+        with:
+          name: release-windows
+          path: dist
+
+      # ── First install: stale-flag path ────────────────────────────────────────
+      - name: Prepare flags (CI test mode + stale FAIL)
+        shell: powershell
+        run: |
+          New-Item -ItemType Directory -Force -Path $env:LOG_DIR | Out-Null
+          # Tells setup_dependencies.ps1 to write PASS immediately (no downloads)
+          Set-Content "$env:LOG_DIR\ci_test_mode.flag"   "CI"   -Encoding UTF8
+          # Stale FAIL flag from a previous run — launch_setup.ps1 must delete it
+          Set-Content "$env:LOG_DIR\setup_complete.flag" "FAIL" -Encoding UTF8
+          Write-Host "Test flags written to $env:LOG_DIR"
+
+      - name: Run installer (first install, stale-flag path)
+        shell: powershell
+        run: |
+          $exe = Get-ChildItem dist -Filter "*-windows-setup.exe" | Select-Object -First 1
+          if (-not $exe) { Write-Error "Installer .exe not found in dist/"; exit 1 }
+          Write-Host "Executing: $($exe.FullName) /S"
+          $proc = Start-Process $exe.FullName -ArgumentList "/S" -Wait -PassThru
+          Write-Host "Exit code: $($proc.ExitCode)"
+          if ($proc.ExitCode -ne 0) {
+            Get-Content "$env:LOG_DIR\setup.log" -ErrorAction SilentlyContinue
+            Write-Error "Installer exited $($proc.ExitCode)"
+            exit $proc.ExitCode
+          }
+
+      - name: Check installed files
+        shell: powershell
+        run: |
+          $inst = "$env:PROGRAMFILES\$env:REPO_NAME"
+          $int  = "$inst\_internal"
+          $fail = 0
+
+          function ck($p) {
+            if (Test-Path $p) { Write-Host "  OK  $p" }
+            else { Write-Host "MISSING  $p"; $script:fail++ }
+          }
+
+          Write-Host "=== Installed files ==="
+          ck "$inst\$env:REPO_NAME.exe"        # main binary
+          ck "$inst\Uninstall.exe"              # uninstaller
+          ck "$int\launch_setup.ps1"            # installer helper
+          ck "$int\setup_dependencies.ps1"      # dependency setup script
+          ck "$int\ResilienceReport.qmd"        # primary report template
+          ck "$int\SCROLReport.qmd"             # SCROL matrix template
+          ck "$int\references.bib"              # bibliography
+          ck "$int\QTDublinIrish.otf"           # custom font
+          ck "$int\img"                          # images directory
+          ck "$int\tex"                          # LaTeX includes directory
+          ck "$int\_extensions"                  # Quarto extensions
+
+          if ($fail -gt 0) {
+            Write-Error "$fail file(s) missing after installation"
+            exit 1
+          }
+          Write-Host "All expected files present."
+
+      - name: Check flag state
+        shell: powershell
+        run: |
+          $fail = 0
+
+          # setup_complete.flag must contain PASS (not the stale FAIL we planted)
+          $flagFile = "$env:LOG_DIR\setup_complete.flag"
+          if (-not (Test-Path $flagFile)) {
+            Write-Host "MISSING  setup_complete.flag"
+            $fail++
+          } else {
+            $result = (Get-Content $flagFile -Raw) -replace '\s', ''
+            if ($result -eq "PASS") { Write-Host "  OK  setup_complete.flag = PASS" }
+            else { Write-Host "FAIL  setup_complete.flag = $result (expected PASS)"; $fail++ }
+          }
+
+          # setup_running.flag must be gone (CI test mode removes it)
+          if (Test-Path "$env:LOG_DIR\setup_running.flag") {
+            Write-Host "FAIL  setup_running.flag still present"
+            $fail++
+          } else { Write-Host "  OK  setup_running.flag removed" }
+
+          # setup_error.log must not exist (no unhandled errors)
+          if (Test-Path "$env:LOG_DIR\setup_error.log") {
+            Write-Host "FAIL  setup_error.log exists (unhandled error):"
+            Get-Content "$env:LOG_DIR\setup_error.log"
+            $fail++
+          } else { Write-Host "  OK  no setup_error.log" }
+
+          if ($fail -gt 0) { exit 1 }
+          Write-Host "Flag state OK."
+
+      - name: Check log content
+        shell: pwsh
+        run: |
+          $logFile = "$env:LOG_DIR\setup.log"
+          if (-not (Test-Path $logFile)) {
+            Write-Error "setup.log not found -- launch_setup.ps1 did not run"
+            exit 1
+          }
+          $log  = Get-Content $logFile -Raw
+          $fail = 0
+
+          function expect($pat, $desc) {
+            if ($log -match $pat) { Write-Host "  OK  $desc" }
+            else { Write-Host "MISSING  $desc  (pattern: $pat)"; $script:fail++ }
+          }
+          function forbid($pat, $desc) {
+            if ($log -match $pat) { Write-Host "FAIL  $desc found in log"; $script:fail++ }
+            else { Write-Host "  OK  no $desc" }
+          }
+
+          Write-Host "=== Log checks ==="
+          # launch_setup.ps1 entries
+          expect "Removed stale setup_complete\.flag" "stale-flag cleanup logged"
+          expect "Task started\. Waiting for completion"  "task start logged"
+          expect "Setup finished with result: PASS"       "PASS result logged"
+          # setup_dependencies.ps1 entry (proves SYSTEM task ran our script)
+          expect "CI test mode active"                    "CI test mode triggered"
+          # No errors
+          forbid "\[ERROR\]"  "[ERROR] in log"
+          forbid "\[FATAL\]"  "[FATAL] in log"
+
+          Write-Host "=== setup.log ==="
+          Write-Host $log
+
+          if ($fail -gt 0) {
+            Write-Error "$fail log check(s) failed"
+            exit 1
+          }
+          Write-Host "Log checks passed."
+
+      # ── Second install: reinstall / idempotency path ──────────────────────────
+      - name: Run installer (reinstall, no stale flag)
+        shell: powershell
+        run: |
+          # ci_test_mode.flag is still present; no stale flag this time.
+          # Verifies the clean-path: launch_setup.ps1 skips stale-flag removal,
+          # task runs again, setup_dependencies.ps1 writes PASS again.
+          $exe  = Get-ChildItem dist -Filter "*-windows-setup.exe" | Select-Object -First 1
+          $proc = Start-Process $exe.FullName -ArgumentList "/S" -Wait -PassThru
+          Write-Host "Reinstall exit code: $($proc.ExitCode)"
+          if ($proc.ExitCode -ne 0) {
+            Get-Content "$env:LOG_DIR\setup.log" -ErrorAction SilentlyContinue
+            Write-Error "Reinstall failed with exit code $($proc.ExitCode)"
+            exit $proc.ExitCode
+          }
+          $result = (Get-Content "$env:LOG_DIR\setup_complete.flag" -Raw) -replace '\s', ''
+          if ($result -ne "PASS") {
+            Write-Error "Reinstall: expected PASS but got: $result"
+            exit 1
+          }
+          Write-Host "Reinstall smoke PASSED."
+
+      - name: Upload logs (always)
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: installer-smoke-log
+          path: C:\ProgramData\ResilienceScan\
+
+  # ── Create the GitHub Release and attach all artifacts ───────────────────────
+  publish:
+    needs: [version-check, build, installer-smoke]
     runs-on: ubuntu-latest
+
     steps:
       - uses: actions/download-artifact@v4
         with:
           pattern: release-*
           path: release-assets
           merge-multiple: true
-      - name: Create GitHub Release (gh CLI)
+
+      - name: Create GitHub Release
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           gh release create "v${{ needs.version-check.outputs.version }}" \
             --title "v${{ needs.version-check.outputs.version }}" \
             --generate-notes \
-            release-assets/* || true
+            release-assets/*
+
+  # ── Patch README download links after release ─────────────────────────────────
+  update-readme:
+    needs: [version-check, publish]
+    runs-on: ubuntu-latest
+    env:
+      VER: ${{ needs.version-check.outputs.version }}
+      REPO: Windesheim-A-I-Support/ResilenceScanReportBuilder
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Patch download links in README
+        run: |
+          BASE="https://github.com/${REPO}/releases/download/v${VER}"
+          REPO_NAME="${REPO#*/}"
+
+          # Build the replacement block
+          NEW_BLOCK="<!-- DOWNLOAD_LINKS_START -->
+          | Platform | Download |
+          |----------|----------|
+          | Windows | [Windows Installer (.exe)](${BASE}/${REPO_NAME}-${VER}-windows-setup.exe) |
+          | Windows | [Portable ZIP](${BASE}/${REPO_NAME}-${VER}-windows-portable.zip) |
+          | Linux | [.deb (Ubuntu/Debian)](${BASE}/${REPO_NAME}-${VER}-amd64.deb) |
+          | Linux | [AppImage](${BASE}/${REPO_NAME}-${VER}-x86_64.AppImage) |
+          | Linux | [Tarball (.tar.gz)](${BASE}/${REPO_NAME}-${VER}-linux-amd64.tar.gz) |
+          <!-- DOWNLOAD_LINKS_END -->"
+
+          python3 - <<'PYEOF'
+          import re, os
+
+          ver      = os.environ["VER"]
+          repo     = os.environ["REPO"]
+          base     = f"https://github.com/{repo}/releases/download/v{ver}"
+          repo_name = repo.split("/")[1]
+
+          block = f"""<!-- DOWNLOAD_LINKS_START -->
+          | Platform | Download |
+          |----------|----------|
+          | Windows | [Windows Installer (.exe)]({base}/{repo_name}-{ver}-windows-setup.exe) |
+          | Windows | [Portable ZIP]({base}/{repo_name}-{ver}-windows-portable.zip) |
+          | Linux | [.deb (Ubuntu/Debian)]({base}/{repo_name}-{ver}-amd64.deb) |
+          | Linux | [AppImage]({base}/{repo_name}-{ver}-x86_64.AppImage) |
+          | Linux | [Tarball (.tar.gz)]({base}/{repo_name}-{ver}-linux-amd64.tar.gz) |
+          | macOS | [Tarball (.tar.gz, Apple Silicon)]({base}/{repo_name}-{ver}-macos-arm64.tar.gz) |
+          | macOS | [Tarball (.tar.gz, Intel)]({base}/{repo_name}-{ver}-macos-x86_64.tar.gz) |
+          <!-- DOWNLOAD_LINKS_END -->"""
+
+          text = open("README.md", encoding="utf-8").read()
+          new_text = re.sub(
+              r"<!-- DOWNLOAD_LINKS_START -->.*?<!-- DOWNLOAD_LINKS_END -->",
+              block,
+              text,
+              flags=re.DOTALL,
+          )
+          open("README.md", "w", encoding="utf-8").write(new_text)
+          print(f"README patched for v{ver}")
+          PYEOF
+
+      - name: Commit updated README
+        run: |
+          git config user.name  "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add README.md
+          git diff --cached --quiet && echo "No changes" || \
+            git commit -m "docs: update download links for v${VER} [skip ci]"
+          git push origin main
