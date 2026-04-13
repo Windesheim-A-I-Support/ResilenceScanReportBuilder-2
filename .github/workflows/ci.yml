@@ -85,9 +85,11 @@ jobs:
           pattern: release-*
           path: release-assets
           merge-multiple: true
-      - uses: softprops/action-gh-release@v2
-        with:
-          tag_name: v${{ needs.version-check.outputs.version }}
-          name: v${{ needs.version-check.outputs.version }}
-          generate_release_notes: true
-          files: release-assets/*
+      - name: Create GitHub Release (gh CLI)
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh release create "v${{ needs.version-check.outputs.version }}" \
+            --title "v${{ needs.version-check.outputs.version }}" \
+            --generate-notes \
+            release-assets/* || true
