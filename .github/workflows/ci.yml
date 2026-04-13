@@ -237,31 +237,41 @@ jobs:
           cp -rp "$QUARTO_INSTALL" macos-bundled/quarto
           "$QUARTO_INSTALL/bin/quarto" --version
 
-          # ── TinyTeX ─────────────────────────────────────────────────────
-          echo "Installing TinyTeX via Quarto..."
-          "$QUARTO_INSTALL/bin/quarto" install tinytex --no-prompt
-          # Find TinyTeX directory — search broadly since quarto may use
-          # different paths across versions/platforms
-          TINYTEX_SRC=""
-          for candidate in \
-            "$HOME/Library/Application Support/quarto/tools/tinytex" \
-            "$HOME/.TinyTeX" \
-            "$HOME/.local/share/quarto/tools/tinytex" \
-            "$HOME/Library/Caches/quarto/tools/tinytex" \
-            "$QUARTO_INSTALL/tools/tinytex"; do
-            if [ -d "$candidate" ]; then TINYTEX_SRC="$candidate"; break; fi
-          done
-          # Fallback: locate via find under HOME (slow but reliable)
-          if [ -z "$TINYTEX_SRC" ]; then
-            echo "Static candidates missed — searching with find..."
-            TINYTEX_SRC=$(find "$HOME" -maxdepth 8 -type d -name "tinytex" 2>/dev/null | head -1)
+          # ── TinyTeX — download directly via authenticated GitHub API ─────
+          # Bypasses quarto's unauthenticated API call that hits rate limits.
+          echo "Fetching latest TinyTeX release info (authenticated)..."
+          TINYTEX_JSON=$(curl -fsSL \
+            -H "Authorization: Bearer $GITHUB_TOKEN" \
+            -H "Accept: application/vnd.github+json" \
+            "https://api.github.com/repos/rstudio/tinytex-releases/releases/latest")
+          TINYTEX_TAG=$(echo "$TINYTEX_JSON" | python3 -c \
+            "import sys,json; print(json.load(sys.stdin)['tag_name'])")
+          echo "Latest TinyTeX: $TINYTEX_TAG"
+          # Pick the .tgz asset — prefer arch-specific, fall back to any TinyTeX-1.tgz
+          TINYTEX_URL=$(echo "$TINYTEX_JSON" | python3 -c "
+import sys, json
+data = json.load(sys.stdin)
+arch = '$ARCH'
+assets = data.get('assets', [])
+preferred = [a for a in assets if 'TinyTeX-1' in a['name'] and arch in a['name'] and a['name'].endswith('.tgz')]
+fallback  = [a for a in assets if 'TinyTeX-1' in a['name'] and a['name'].endswith('.tgz')]
+chosen = (preferred or fallback or [None])[0]
+if chosen: print(chosen['browser_download_url'])
+")
+          if [ -z "$TINYTEX_URL" ]; then
+            echo "Available assets:"; echo "$TINYTEX_JSON" | python3 -c \
+              "import sys,json; [print(a['name']) for a in json.load(sys.stdin).get('assets',[])]"
+            echo "ERROR: TinyTeX-1 .tgz asset not found in release $TINYTEX_TAG"; exit 1
           fi
-          if [ -z "$TINYTEX_SRC" ]; then
-            echo "TinyTeX dirs under HOME:"; find "$HOME" -maxdepth 8 -type d -name "TinyTeX" 2>/dev/null || true
-            echo "Quarto tools dir:"; ls "$QUARTO_INSTALL/tools/" 2>/dev/null || true
-            echo "ERROR: TinyTeX directory not found after install"; exit 1
+          echo "Downloading: $TINYTEX_URL"
+          curl -fsSL -o /tmp/TinyTeX-1.tgz "$TINYTEX_URL"
+          # Tarball extracts to ~/.TinyTeX
+          tar -xzf /tmp/TinyTeX-1.tgz -C "$HOME"
+          TINYTEX_SRC="$HOME/.TinyTeX"
+          if [ ! -d "$TINYTEX_SRC" ]; then
+            echo "ERROR: $TINYTEX_SRC not found after extraction"; exit 1
           fi
-          echo "TinyTeX found at: $TINYTEX_SRC"
+          echo "TinyTeX installed at: $TINYTEX_SRC"
           cp -rp "$TINYTEX_SRC" macos-bundled/tinytex
           echo "macOS bundling complete."
           du -sh macos-bundled/
