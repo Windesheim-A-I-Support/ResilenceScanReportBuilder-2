@@ -11,11 +11,13 @@ Trigger
 <!-- DOWNLOAD_LINKS_START -->
 | Platform | Download |
 |----------|----------|
-| Windows | [Windows Installer (.exe)](https://github.com/Windesheim-A-I-Support/ResilenceScanReportBuilder/releases/download/v0.21.61/ResilenceScanReportBuilder-0.21.61-windows-setup.exe) |
-| Windows | [Portable ZIP](https://github.com/Windesheim-A-I-Support/ResilenceScanReportBuilder/releases/download/v0.21.61/ResilenceScanReportBuilder-0.21.61-windows-portable.zip) |
-| Linux | [.deb (Ubuntu/Debian)](https://github.com/Windesheim-A-I-Support/ResilenceScanReportBuilder/releases/download/v0.21.61/ResilenceScanReportBuilder-0.21.61-amd64.deb) |
-| Linux | [AppImage](https://github.com/Windesheim-A-I-Support/ResilenceScanReportBuilder/releases/download/v0.21.61/ResilenceScanReportBuilder-0.21.61-x86_64.AppImage) |
-| Linux | [Tarball (.tar.gz)](https://github.com/Windesheim-A-I-Support/ResilenceScanReportBuilder/releases/download/v0.21.61/ResilenceScanReportBuilder-0.21.61-linux-amd64.tar.gz) |
+| Windows | [Windows Installer (.exe)](https://github.com/Windesheim-A-I-Support/ResilenceScanReportBuilder/releases/download/v0.22.1/ResilenceScanReportBuilder-0.22.1-windows-setup.exe) |
+| Windows | [Portable ZIP](https://github.com/Windesheim-A-I-Support/ResilenceScanReportBuilder/releases/download/v0.22.1/ResilenceScanReportBuilder-0.22.1-windows-portable.zip) |
+| Linux | [.deb (Ubuntu/Debian)](https://github.com/Windesheim-A-I-Support/ResilenceScanReportBuilder/releases/download/v0.22.1/ResilenceScanReportBuilder-0.22.1-amd64.deb) |
+| Linux | [AppImage](https://github.com/Windesheim-A-I-Support/ResilenceScanReportBuilder/releases/download/v0.22.1/ResilenceScanReportBuilder-0.22.1-x86_64.AppImage) |
+| Linux | [Tarball (.tar.gz)](https://github.com/Windesheim-A-I-Support/ResilenceScanReportBuilder/releases/download/v0.22.1/ResilenceScanReportBuilder-0.22.1-linux-amd64.tar.gz) |
+| macOS | [Tarball (.tar.gz, Apple Silicon)](https://github.com/Windesheim-A-I-Support/ResilenceScanReportBuilder/releases/download/v0.22.1/ResilenceScanReportBuilder-0.22.1-macos-arm64.tar.gz) |
+| macOS | [Tarball (.tar.gz, Intel)](https://github.com/Windesheim-A-I-Support/ResilenceScanReportBuilder/releases/download/v0.22.1/ResilenceScanReportBuilder-0.22.1-macos-x86_64.tar.gz) |
 <!-- DOWNLOAD_LINKS_END -->
 
 > Direct download links are updated automatically after each release by CI.  If the links above point to the releases page rather than a specific file, a new release is in progress.
