@@ -19,7 +19,7 @@ jobs:
   test:
     strategy:
       matrix:
-        os: [ubuntu-latest, windows-latest, macos-latest]
+        os: [ubuntu-latest, windows-latest]
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
@@ -128,8 +128,6 @@ jobs:
             artifact: windows
           - os: ubuntu-latest
             artifact: linux
-          - os: macos-latest
-            artifact: macos
     runs-on: ${{ matrix.os }}
     env:
       APP_VERSION: ${{ needs.version-check.outputs.version }}
