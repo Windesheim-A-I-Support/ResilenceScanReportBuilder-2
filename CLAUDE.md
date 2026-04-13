@@ -171,7 +171,7 @@ emails via Outlook COM (Windows) or SMTP fallback (Office365)
 | M57 | Email sender profiles: named profiles in config.yml, profile selector in SMTP tab, "Sending from:" in Send tab |
 | M58 | macOS support: platform paths, tool discovery (R/Quarto/TinyTeX), setup_macos.sh, CI build matrix |
 
-**Current version: v0.22.0 — 270 tests, ruff clean**
+**Current version: v0.22.1 — 270 tests, ruff clean**
 
 ---
 

@@ -44,6 +44,18 @@ _R_PACKAGES = [
 # ---------------------------------------------------------------------------
 
 
+def _bundled_tool(relative_path: str) -> "str | None":
+    """Return the absolute path to a tool in _internal/bundled/, or None.
+
+    Reads sys._MEIPASS directly to avoid a circular import with app.app_paths.
+    Only meaningful when running as a frozen PyInstaller build.
+    """
+    if not getattr(sys, "frozen", False):
+        return None
+    candidate = Path(sys._MEIPASS) / "bundled" / relative_path
+    return str(candidate) if candidate.exists() else None
+
+
 def _refresh_windows_path() -> None:
     """Re-read machine + user PATH from the Windows registry and patch os.environ.
 
@@ -76,7 +88,10 @@ def _refresh_windows_path() -> None:
 
 
 def _find_rscript() -> str | None:
-    """Find Rscript.exe via PATH, then well-known install locations."""
+    """Find Rscript — bundled copy first, then PATH, then well-known locations."""
+    bundled = _bundled_tool("R.framework/Resources/bin/Rscript")
+    if bundled:
+        return bundled
     exe = shutil.which("Rscript") or shutil.which("R")
     if exe:
         return exe
@@ -101,7 +116,10 @@ def _find_rscript() -> str | None:
 
 
 def _find_quarto() -> str | None:
-    """Find quarto via PATH, then well-known install location."""
+    """Find quarto — bundled copy first, then PATH, then well-known locations."""
+    bundled = _bundled_tool("quarto/bin/quarto")
+    if bundled:
+        return bundled
     exe = shutil.which("quarto")
     if exe:
         return exe
@@ -122,7 +140,7 @@ def _find_quarto() -> str | None:
 
 
 def _find_tlmgr() -> str | None:
-    """Find tlmgr via PATH, then well-known TinyTeX locations.
+    """Find tlmgr — bundled copy first, then PATH, then well-known TinyTeX locations.
 
     TinyTeX is installed into the SYSTEM account's AppData when setup runs as
     SYSTEM, so we check that profile path explicitly alongside the current
@@ -132,6 +150,16 @@ def _find_tlmgr() -> str | None:
     is not inherited correctly in the frozen app, so we also try the explicit
     .bat extension and a set of hardcoded fallback paths.
     """
+    # Check bundled TinyTeX first (macOS builds with full bundling)
+    if getattr(sys, "frozen", False):
+        tinytex_bin_root = Path(sys._MEIPASS) / "bundled" / "tinytex" / "bin"
+        if tinytex_bin_root.exists():
+            for arch_dir in sorted(tinytex_bin_root.iterdir()):
+                if arch_dir.is_dir():
+                    candidate = arch_dir / "tlmgr"
+                    if candidate.exists():
+                        return str(candidate)
+
     # Try PATH first — explicit .bat extension in case PATHEXT is stripped
     exe = shutil.which("tlmgr") or shutil.which("tlmgr.bat")
     if exe:

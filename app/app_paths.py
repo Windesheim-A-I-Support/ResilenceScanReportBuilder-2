@@ -127,6 +127,88 @@ def _r_library_path() -> "Path | None":
     return None
 
 
+def _bundled_dir() -> "Path | None":
+    """Return _internal/bundled/ when the app ships bundled R/Quarto/TinyTeX.
+
+    Only present in macOS builds produced by the CI bundling steps.
+    Returns None in dev mode or on Windows/Linux where dependencies are
+    installed separately by the platform setup scripts.
+    """
+    if not getattr(sys, "frozen", False):
+        return None
+    d = Path(sys._MEIPASS) / "bundled"
+    return d if d.exists() else None
+
+
+def make_subprocess_env() -> dict:
+    """Return an os.environ copy enriched with bundled tool paths.
+
+    Centralises the environment setup that was previously duplicated across
+    gui_generate.py and _check_r_packages_ready().  Safe to call on every
+    platform and in dev mode — gracefully degrades to a plain copy of
+    os.environ when no bundled tools exist.
+
+    Sets (when bundled tools are present):
+      PATH          — bundled Rscript / quarto / pdflatex prepended
+      R_HOME        — bundled R.framework/Resources (macOS)
+      R_LIBS        — bundled r-library prepended
+      DYLD_FALLBACK_LIBRARY_PATH — bundled R dylib dir so Rscript loads
+                                    even without a system-wide R install
+    """
+    env = os.environ.copy()
+    extra_paths: list[str] = []
+
+    bundled = _bundled_dir()
+    if bundled:
+        # ── Bundled R framework (macOS) ──────────────────────────────────
+        r_resources = bundled / "R.framework" / "Resources"
+        if r_resources.exists():
+            env["R_HOME"] = str(r_resources)
+            r_bin = r_resources / "bin"
+            if r_bin.exists():
+                extra_paths.append(str(r_bin))
+            # Allow Rscript to load the R dylib even without system R:
+            # Rscript has a hardcoded absolute dylib path; when that path
+            # doesn't exist, dyld falls back to DYLD_FALLBACK_LIBRARY_PATH.
+            r_fw_versions = bundled / "R.framework" / "Versions"
+            if r_fw_versions.exists():
+                ver_dirs = sorted(
+                    d for d in r_fw_versions.iterdir()
+                    if d.is_dir() and d.name != "Current"
+                )
+                if ver_dirs:
+                    fallback = str(ver_dirs[-1])  # newest version dir
+                    existing_fb = env.get("DYLD_FALLBACK_LIBRARY_PATH", "")
+                    env["DYLD_FALLBACK_LIBRARY_PATH"] = (
+                        f"{fallback}{os.pathsep}{existing_fb}"
+                        if existing_fb
+                        else fallback
+                    )
+
+        # ── Bundled Quarto ───────────────────────────────────────────────
+        quarto_bin = bundled / "quarto" / "bin"
+        if quarto_bin.exists():
+            extra_paths.append(str(quarto_bin))
+
+        # ── Bundled TinyTeX ──────────────────────────────────────────────
+        tinytex_bin_root = bundled / "tinytex" / "bin"
+        if tinytex_bin_root.exists():
+            arch_dirs = sorted(d for d in tinytex_bin_root.iterdir() if d.is_dir())
+            if arch_dirs:
+                extra_paths.append(str(arch_dirs[0]))
+
+    # ── Bundled R packages (all platforms) ──────────────────────────────
+    r_lib = _r_library_path()
+    if r_lib is not None and r_lib.exists():
+        existing = env.get("R_LIBS", "")
+        env["R_LIBS"] = f"{r_lib}{os.pathsep}{existing}" if existing else str(r_lib)
+
+    if extra_paths:
+        env["PATH"] = os.pathsep.join(extra_paths) + os.pathsep + env.get("PATH", "")
+
+    return env
+
+
 def _check_r_packages_ready() -> "str | None":
     """Return None if all required R packages are findable, or an error string.
 
@@ -140,11 +222,7 @@ def _check_r_packages_ready() -> "str | None":
     if not rscript:
         return "Rscript not found on PATH"
 
-    env = os.environ.copy()
-    r_lib = _r_library_path()
-    if r_lib is not None and r_lib.exists():
-        existing = env.get("R_LIBS", "")
-        env["R_LIBS"] = f"{r_lib}{os.pathsep}{existing}" if existing else str(r_lib)
+    env = make_subprocess_env()
 
     pkg_list = ", ".join(f'"{p}"' for p in _R_PACKAGES)
     script = (

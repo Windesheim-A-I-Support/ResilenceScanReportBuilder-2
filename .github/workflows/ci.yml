@@ -157,6 +157,98 @@ jobs:
         if: runner.os == 'macOS'
         run: brew install tcl-tk || true
 
+      # ── macOS: bundle R, Quarto, TinyTeX, R packages at build time ──────────
+      # This produces a self-contained app with zero external dependencies.
+      # R.framework is copied from the CRAN install; Rscript has a hardcoded
+      # dylib path so we set DYLD_FALLBACK_LIBRARY_PATH at runtime to let it
+      # find the bundled dylib when no system R is present.
+      - name: Bundle R, Quarto, TinyTeX and R packages (macOS)
+        if: runner.os == 'macOS'
+        run: |
+          set -e
+          ARCH=$(uname -m)
+          R_VERSION="4.5.1"
+          QUARTO_VERSION="1.6.39"
+          NCPUS=$(sysctl -n hw.logicalcpu)
+
+          # ── R ──────────────────────────────────────────────────────────
+          if [ "$ARCH" = "arm64" ]; then
+            R_URL="https://cran.r-project.org/bin/macosx/big-sur-arm64/base/R-${R_VERSION}-arm64.pkg"
+          else
+            R_URL="https://cran.r-project.org/bin/macosx/big-sur-x86_64/base/R-${R_VERSION}-x86_64.pkg"
+          fi
+          echo "Downloading R ${R_VERSION} for ${ARCH}..."
+          curl -fsSL -o /tmp/R.pkg "$R_URL"
+          sudo installer -pkg /tmp/R.pkg -target /
+          Rscript --version
+
+          # ── R packages (to r-library/ next to the executable) ──────────
+          echo "Installing R packages to r-library/ ..."
+          mkdir -p r-library
+          Rscript -e "
+            pkgs <- c('readr','dplyr','stringr','tidyr','ggplot2','knitr','fmsb',
+                      'scales','viridis','patchwork','RColorBrewer','gridExtra',
+                      'png','lubridate','kableExtra','rmarkdown','jsonlite',
+                      'ggrepel','cowplot')
+            install.packages(pkgs, lib='r-library',
+              repos='https://cloud.r-project.org', Ncpus=${NCPUS}, quiet=FALSE)
+          "
+          echo "Verifying R packages..."
+          MISSING=$(Rscript --no-save -e "
+            .libPaths(c('r-library', .libPaths()))
+            pkgs <- c('readr','dplyr','stringr','tidyr','ggplot2','knitr','fmsb',
+                      'scales','viridis','patchwork','RColorBrewer','gridExtra',
+                      'png','lubridate','kableExtra','rmarkdown','jsonlite',
+                      'ggrepel','cowplot')
+            bad <- pkgs[!sapply(pkgs, requireNamespace, quietly=TRUE)]
+            cat(paste(bad, collapse=' '))
+          " 2>&1)
+          if [ -n "$MISSING" ]; then
+            echo "ERROR: R packages missing after install: $MISSING"; exit 1
+          fi
+          echo "All R packages verified."
+
+          # ── R framework (copy for bundling) ─────────────────────────────
+          echo "Copying R.framework for bundling..."
+          mkdir -p macos-bundled
+          cp -rp /Library/Frameworks/R.framework macos-bundled/R.framework
+
+          # ── Quarto ──────────────────────────────────────────────────────
+          echo "Downloading Quarto ${QUARTO_VERSION}..."
+          curl -fsSL -o /tmp/quarto.pkg \
+            "https://github.com/quarto-dev/quarto-cli/releases/download/v${QUARTO_VERSION}/quarto-${QUARTO_VERSION}-macos.pkg"
+          sudo installer -pkg /tmp/quarto.pkg -target /
+          # Find install location
+          QUARTO_INSTALL=""
+          for candidate in /Applications/quarto /usr/local/share/quarto /opt/quarto; do
+            if [ -d "$candidate" ]; then QUARTO_INSTALL="$candidate"; break; fi
+          done
+          if [ -z "$QUARTO_INSTALL" ]; then
+            echo "ERROR: Quarto install dir not found"; exit 1
+          fi
+          echo "Quarto installed at: $QUARTO_INSTALL"
+          cp -rp "$QUARTO_INSTALL" macos-bundled/quarto
+          "$QUARTO_INSTALL/bin/quarto" --version
+
+          # ── TinyTeX ─────────────────────────────────────────────────────
+          echo "Installing TinyTeX via Quarto..."
+          "$QUARTO_INSTALL/bin/quarto" install tinytex --no-prompt
+          # Find TinyTeX directory
+          TINYTEX_SRC=""
+          for candidate in \
+            "$HOME/Library/Application Support/quarto/tools/tinytex" \
+            "$HOME/.TinyTeX" \
+            "$HOME/.local/share/quarto/tools/tinytex"; do
+            if [ -d "$candidate" ]; then TINYTEX_SRC="$candidate"; break; fi
+          done
+          if [ -z "$TINYTEX_SRC" ]; then
+            echo "ERROR: TinyTeX directory not found after install"; exit 1
+          fi
+          echo "TinyTeX found at: $TINYTEX_SRC"
+          cp -rp "$TINYTEX_SRC" macos-bundled/tinytex
+          echo "macOS bundling complete."
+          du -sh macos-bundled/
+
       # ── Windows ──────────────────────────────────────────────────────────────
       - name: Write _version.py
         shell: python
@@ -385,7 +477,7 @@ jobs:
             "dist/${REPO_NAME}-${APP_VERSION}-amd64.deb"
 
       # ── macOS ─────────────────────────────────────────────────────────────────
-      - name: Build macOS app (onedir)
+      - name: Build macOS app (onedir, fully bundled)
         if: runner.os == 'macOS'
         run: |
           pyinstaller --clean --noconfirm --onedir \
@@ -400,7 +492,14 @@ jobs:
             --add-data "references.bib:." \
             --add-data "QTDublinIrish.otf:." \
             --add-data "packaging/setup_macos.sh:." \
+            --add-data "macos-bundled/R.framework:bundled/R.framework" \
+            --add-data "macos-bundled/quarto:bundled/quarto" \
+            --add-data "macos-bundled/tinytex:bundled/tinytex" \
             app/main.py
+
+      - name: Copy r-library next to executable (macOS)
+        if: runner.os == 'macOS'
+        run: cp -rp r-library "dist/${REPO_NAME}/r-library"
 
       - name: Package macOS tarball
         if: runner.os == 'macOS'

@@ -9,7 +9,7 @@ import tkinter as tk
 from datetime import datetime
 from tkinter import messagebox
 
-from app.app_paths import ROOT_DIR
+from app.app_paths import ROOT_DIR, make_subprocess_env
 
 # gui_system_check is a repo-root module (not inside app/)
 from gui_system_check import SystemChecker, setup_status
@@ -275,6 +275,7 @@ class SettingsMixin:
                     capture_output=True,
                     text=True,
                     timeout=600,
+                    env=make_subprocess_env(),
                 )
                 output = (proc.stdout + proc.stderr).strip()
                 self.root.after(0, lambda: self._r_install_done(output, silent))

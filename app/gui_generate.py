@@ -2,7 +2,6 @@
 GenerationMixin — PDF generation tab and all report-generation methods.
 """
 
-import os
 import shutil
 import subprocess
 import sys
@@ -19,7 +18,7 @@ from app.app_paths import (
     DEFAULT_OUTPUT_DIR,
     _DATA_ROOT,
     _check_r_packages_ready,
-    _r_library_path,
+    make_subprocess_env,
 )
 from utils.constants import QUARTO_TIMEOUT_SECONDS, SCORE_COLUMNS
 from utils.filename_utils import safe_display_name, safe_filename
@@ -344,15 +343,8 @@ class GenerationMixin:
             )
             self.status_label.config(text=f"Generating: {company} - {person}")
 
-            # Build env — inject R_LIBS so R finds packages in the bundled
-            # r-library/ dir installed by the setup script.
-            single_env = os.environ.copy()
-            r_lib = _r_library_path()
-            if r_lib is not None and r_lib.exists():
-                existing = single_env.get("R_LIBS", "")
-                single_env["R_LIBS"] = (
-                    f"{r_lib}{os.pathsep}{existing}" if existing else str(r_lib)
-                )
+            # Build env — inject bundled R/Quarto/TinyTeX paths and R_LIBS.
+            single_env = make_subprocess_env()
 
             # Execute quarto render — cwd=_DATA_ROOT so quarto writes .quarto/
             # there (writable) and R finds data/cleaned_master.csv correctly.
@@ -667,15 +659,9 @@ class GenerationMixin:
                     str(out_dir),
                 ]
 
-                # Build subprocess environment — inject R_LIBS if frozen so
-                # Quarto finds the R packages bundled by the installer.
-                gen_env = os.environ.copy()
-                r_lib = _r_library_path()
-                if r_lib is not None and r_lib.exists():
-                    existing = gen_env.get("R_LIBS", "")
-                    gen_env["R_LIBS"] = (
-                        f"{r_lib}{os.pathsep}{existing}" if existing else str(r_lib)
-                    )
+                # Build subprocess environment — inject bundled R/Quarto/TinyTeX
+                # paths and R_LIBS so Quarto finds everything in the bundle.
+                gen_env = make_subprocess_env()
 
                 # Execute quarto render — cwd=_DATA_ROOT so quarto writes
                 # .quarto/ there (writable) and R finds data/ correctly.
