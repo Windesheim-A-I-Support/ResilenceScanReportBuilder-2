@@ -16,7 +16,10 @@ permissions:
 jobs:
   # ── Lint + Test ──────────────────────────────────────────────────────────────
   test:
-    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
 
@@ -25,10 +28,11 @@ jobs:
           python-version: "3.13"
           cache: pip
 
-      - name: Install system libraries
-        run: |
-          sudo apt-get update -qq
-          sudo apt-get install -y --no-install-recommends python3-tk tk-dev
+- name: Install system libraries (Linux only)
+          if: runner.os == 'Linux'
+          run: |
+            sudo apt-get update -qq
+            sudo apt-get install -y --no-install-recommends python3-tk tk-dev
 
       - name: Install dependencies
         run: |
