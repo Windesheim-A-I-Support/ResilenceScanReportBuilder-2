@@ -739,11 +739,15 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
+          # Only upload files (not the onedir bundle directory)
+          mapfile -t ASSETS < <(find release-assets -maxdepth 1 -type f | sort)
+          echo "Attaching ${#ASSETS[@]} file(s):"
+          printf '  %s\n' "${ASSETS[@]}"
           gh release create "v${{ needs.version-check.outputs.version }}" \
             --repo "${{ github.repository }}" \
             --title "v${{ needs.version-check.outputs.version }}" \
             --generate-notes \
-            release-assets/*
+            "${ASSETS[@]}"
 
   # ── Patch README download links after release ─────────────────────────────────
   update-readme:
