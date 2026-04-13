@@ -173,7 +173,8 @@ def make_subprocess_env() -> dict:
             r_fw_versions = bundled / "R.framework" / "Versions"
             if r_fw_versions.exists():
                 ver_dirs = sorted(
-                    d for d in r_fw_versions.iterdir()
+                    d
+                    for d in r_fw_versions.iterdir()
                     if d.is_dir() and d.name != "Current"
                 )
                 if ver_dirs:
