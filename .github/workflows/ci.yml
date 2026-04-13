@@ -265,13 +265,18 @@ jobs:
           echo "Downloading: $TINYTEX_URL"
           TINYTEX_FILE="/tmp/$(basename "$TINYTEX_URL")"
           curl -fsSL -o "$TINYTEX_FILE" "$TINYTEX_URL"
+          echo "Top entries in TinyTeX tarball:"
+          tar -tf "$TINYTEX_FILE" 2>/dev/null | head -5
           # BSD tar auto-detects compression (.tgz, .tar.xz, .tar.gz all work)
           tar -xf "$TINYTEX_FILE" -C "$HOME"
-          TINYTEX_SRC="$HOME/.TinyTeX"
-          if [ ! -d "$TINYTEX_SRC" ]; then
-            echo "ERROR: $TINYTEX_SRC not found after extraction"; exit 1
+          # Locate TinyTeX root by finding tlmgr (binary is at <root>/bin/<platform>/tlmgr)
+          TLMGR=$(find "$HOME" -maxdepth 5 -name "tlmgr" 2>/dev/null | head -1)
+          if [ -z "$TLMGR" ]; then
+            echo "tlmgr not found — HOME contents:"; ls -la "$HOME" | head -20; exit 1
           fi
-          echo "TinyTeX installed at: $TINYTEX_SRC"
+          # Navigate up: bin/<platform>/tlmgr → ../../ = root
+          TINYTEX_SRC=$(cd "$(dirname "$TLMGR")/../.." && pwd)
+          echo "TinyTeX installed at: $TINYTEX_SRC (tlmgr: $TLMGR)"
           cp -rp "$TINYTEX_SRC" macos-bundled/tinytex
           echo "macOS bundling complete."
           du -sh macos-bundled/
