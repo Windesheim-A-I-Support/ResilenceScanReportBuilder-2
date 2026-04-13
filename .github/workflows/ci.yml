@@ -8,7 +8,7 @@ name: CI / Release
 on:
   push:
     branches: [main]
-  pull_request: {}
+  pull_request:
   workflow_dispatch:
 
 permissions:

@@ -137,6 +137,28 @@ emails via Outlook COM (Windows) or SMTP fallback (Office365)
 
 ---
 
+## Skills
+
+Skills from `~/.claude/skills/` that apply to this project:
+
+| Skill | When to invoke |
+|---|---|
+| `lint-and-validate` | After **every** code change — run `ruff check . && ruff format --check . && pytest` |
+| `git-pushing` | User says "push", "commit and push", or "save to GitHub" |
+| `github` | Investigating Actions runs, PRs, or CI failures via `gh` CLI |
+| `github-actions-templates` | Debugging or improving `.github/workflows/ci.yml` |
+| `commit` | Creating a commit (conventional commit format) |
+| `create-pr` | Opening a pull request |
+| `python-pro` | Writing new Python code or reviewing existing code |
+| `bash-scripting` | Editing `packaging/setup_macos.sh` or other shell scripts |
+| `systematic-debugging` | Any bug, test failure, or unexpected subprocess behaviour |
+| `debugging-strategies` | When root cause is unclear after initial investigation |
+| `concise-planning` | Planning a new milestone (`M59+`) |
+| `brainstorming` | Designing a new feature or architecture change |
+| `kaizen` | Code quality / tech-debt reviews |
+
+---
+
 ## Working rule
 
 **Do not start the next milestone until the current one is fully verified by its gate condition.**
