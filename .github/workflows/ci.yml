@@ -541,7 +541,7 @@ jobs:
     runs-on: windows-latest
     env:
       APP_VERSION: ${{ needs.version-check.outputs.version }}
-      REPO_NAME: ResilenceScanReportBuilder
+      REPO_NAME: ${{ github.event.repository.name }}
       LOG_DIR: C:\ProgramData\ResilienceScan
 
     steps:
