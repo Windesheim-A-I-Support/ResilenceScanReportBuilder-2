@@ -247,26 +247,26 @@ jobs:
           TINYTEX_TAG=$(echo "$TINYTEX_JSON" | python3 -c \
             "import sys,json; print(json.load(sys.stdin)['tag_name'])")
           echo "Latest TinyTeX: $TINYTEX_TAG"
-          # Pick the .tgz asset — prefer arch-specific, fall back to any TinyTeX-1.tgz
+          # Pick the macOS TinyTeX-1 asset (darwin tar.xz or any tgz fallback)
           TINYTEX_URL=$(echo "$TINYTEX_JSON" | python3 -c "
           import sys, json
           data = json.load(sys.stdin)
-          arch = '$ARCH'
           assets = data.get('assets', [])
-          preferred = [a for a in assets if 'TinyTeX-1' in a['name'] and arch in a['name'] and a['name'].endswith('.tgz')]
-          fallback  = [a for a in assets if 'TinyTeX-1' in a['name'] and a['name'].endswith('.tgz')]
-          chosen = (preferred or fallback or [None])[0]
+          darwin_1 = [a for a in assets if 'TinyTeX-1' in a['name'] and 'darwin' in a['name']]
+          any_tgz  = [a for a in assets if 'TinyTeX-1' in a['name'] and a['name'].endswith('.tgz')]
+          chosen = (darwin_1 or any_tgz or [None])[0]
           if chosen: print(chosen['browser_download_url'])
           ")
           if [ -z "$TINYTEX_URL" ]; then
             echo "Available assets:"; echo "$TINYTEX_JSON" | python3 -c \
               "import sys,json; [print(a['name']) for a in json.load(sys.stdin).get('assets',[])]"
-            echo "ERROR: TinyTeX-1 .tgz asset not found in release $TINYTEX_TAG"; exit 1
+            echo "ERROR: No suitable TinyTeX-1 asset found for darwin in $TINYTEX_TAG"; exit 1
           fi
           echo "Downloading: $TINYTEX_URL"
-          curl -fsSL -o /tmp/TinyTeX-1.tgz "$TINYTEX_URL"
-          # Tarball extracts to ~/.TinyTeX
-          tar -xzf /tmp/TinyTeX-1.tgz -C "$HOME"
+          TINYTEX_FILE="/tmp/$(basename "$TINYTEX_URL")"
+          curl -fsSL -o "$TINYTEX_FILE" "$TINYTEX_URL"
+          # BSD tar auto-detects compression (.tgz, .tar.xz, .tar.gz all work)
+          tar -xf "$TINYTEX_FILE" -C "$HOME"
           TINYTEX_SRC="$HOME/.TinyTeX"
           if [ ! -d "$TINYTEX_SRC" ]; then
             echo "ERROR: $TINYTEX_SRC not found after extraction"; exit 1
