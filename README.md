@@ -3,7 +3,7 @@
 [![Latest Release](https://img.shields.io/github/v/release/Windesheim-A-I-Support/ResilenceScanReportBuilder?label=latest)](https://github.com/Windesheim-A-I-Support/ResilenceScanReportBuilder/releases/latest)
 
 A Windows/Linux desktop application that generates personalised PDF resilience reports for survey respondents and distributes them by email.  Built with Python (Tkinter GUI) + R + Quarto + TinyTeX.
-
+Trigger 
 ---
 
 ## Downloads
