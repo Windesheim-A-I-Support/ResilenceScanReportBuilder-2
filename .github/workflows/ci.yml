@@ -249,15 +249,15 @@ jobs:
           echo "Latest TinyTeX: $TINYTEX_TAG"
           # Pick the .tgz asset — prefer arch-specific, fall back to any TinyTeX-1.tgz
           TINYTEX_URL=$(echo "$TINYTEX_JSON" | python3 -c "
-import sys, json
-data = json.load(sys.stdin)
-arch = '$ARCH'
-assets = data.get('assets', [])
-preferred = [a for a in assets if 'TinyTeX-1' in a['name'] and arch in a['name'] and a['name'].endswith('.tgz')]
-fallback  = [a for a in assets if 'TinyTeX-1' in a['name'] and a['name'].endswith('.tgz')]
-chosen = (preferred or fallback or [None])[0]
-if chosen: print(chosen['browser_download_url'])
-")
+          import sys, json
+          data = json.load(sys.stdin)
+          arch = '$ARCH'
+          assets = data.get('assets', [])
+          preferred = [a for a in assets if 'TinyTeX-1' in a['name'] and arch in a['name'] and a['name'].endswith('.tgz')]
+          fallback  = [a for a in assets if 'TinyTeX-1' in a['name'] and a['name'].endswith('.tgz')]
+          chosen = (preferred or fallback or [None])[0]
+          if chosen: print(chosen['browser_download_url'])
+          ")
           if [ -z "$TINYTEX_URL" ]; then
             echo "Available assets:"; echo "$TINYTEX_JSON" | python3 -c \
               "import sys,json; [print(a['name']) for a in json.load(sys.stdin).get('assets',[])]"
