@@ -8,7 +8,9 @@ set -e
 
 QUARTO_VERSION="1.6.39"
 FLAG_DIR="$HOME/Library/Application Support/ResilienceScan"
-INSTALL_DIR="$(cd "$(dirname "$0")" && pwd)"
+# Accept INSTALL_DIR as first argument (passed by the GUI); fall back to
+# the directory containing this script (useful when run manually).
+INSTALL_DIR="${1:-$(cd "$(dirname "$0")" && pwd)}"
 R_LIB="$INSTALL_DIR/r-library"
 
 log() { echo "[SETUP] $1"; }

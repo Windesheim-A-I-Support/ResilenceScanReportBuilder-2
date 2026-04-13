@@ -262,11 +262,12 @@ class GenerationMixin:
         # Pre-flight: verify R packages before trying quarto render
         r_pkg_err = _check_r_packages_ready()
         if r_pkg_err:
-            log_hint = (
-                r"C:\ProgramData\ResilienceScan\setup.log"
-                if sys.platform == "win32"
-                else "~/.local/share/resiliencescan/setup.log"
-            )
+            if sys.platform == "win32":
+                log_hint = r"C:\ProgramData\ResilienceScan\setup.log"
+            elif sys.platform == "darwin":
+                log_hint = "~/Library/Logs/ResilienceScan/setup.log"
+            else:
+                log_hint = "~/.local/share/resiliencescan/setup.log"
             self.log_gen(f"[ERROR] R packages not ready: {r_pkg_err}")
             self.log_gen(f"[ERROR] Check setup log: {log_hint}")
             self.root.after(
@@ -550,11 +551,12 @@ class GenerationMixin:
         # Pre-flight: verify R packages are available before wasting time on 519 renders
         r_pkg_err = _check_r_packages_ready()
         if r_pkg_err:
-            log_hint = (
-                r"C:\ProgramData\ResilienceScan\setup.log"
-                if sys.platform == "win32"
-                else "~/.local/share/resiliencescan/setup.log"
-            )
+            if sys.platform == "win32":
+                log_hint = r"C:\ProgramData\ResilienceScan\setup.log"
+            elif sys.platform == "darwin":
+                log_hint = "~/Library/Logs/ResilienceScan/setup.log"
+            else:
+                log_hint = "~/.local/share/resiliencescan/setup.log"
             self.log_gen("[ERROR] R packages not ready \u2014 aborting batch.")
             self.log_gen(f"[ERROR] {r_pkg_err}")
             self.log_gen(f"[ERROR] Check setup log: {log_hint}")

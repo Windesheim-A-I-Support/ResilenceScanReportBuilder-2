@@ -48,11 +48,12 @@ class SettingsMixin:
                     "PDFs will not work until setup finishes.",
                 )
             elif install_status == "complete_fail":
-                log_hint = (
-                    r"C:\ProgramData\ResilienceScan\setup.log"
-                    if sys.platform == "win32"
-                    else "/var/log/resilencescan-setup.log"
-                )
+                if sys.platform == "win32":
+                    log_hint = r"C:\ProgramData\ResilienceScan\setup.log"
+                elif sys.platform == "darwin":
+                    log_hint = "~/Library/Logs/ResilienceScan/setup.log"
+                else:
+                    log_hint = "/var/log/resilencescan-setup.log"
                 messagebox.showwarning(
                     "Setup Failed",
                     "The background dependency setup finished with errors.\n\n"
@@ -516,3 +517,52 @@ class SettingsMixin:
             messagebox.showerror("Error", f"Failed to install dependencies:\n{e}")
         finally:
             self.status_label.config(text="Ready")
+
+    def install_macos_dependencies(self):
+        """Launch setup_macos.sh in a Terminal window on macOS."""
+        import platform
+
+        if platform.system() != "Darwin":
+            messagebox.showwarning(
+                "Wrong Platform",
+                "This option is for macOS systems.\n\nYou are running on: "
+                + platform.system(),
+            )
+            return
+
+        script = ROOT_DIR / "setup_macos.sh"
+        if not script.exists():
+            messagebox.showerror(
+                "Script Not Found",
+                f"setup_macos.sh not found at:\n{script}\n\n"
+                "Please re-install the application.",
+            )
+            return
+
+        # INSTALL_DIR is where the executable lives — r-library is placed there.
+        if getattr(sys, "frozen", False):
+            install_dir = str(sys.executable).rsplit("/", 1)[0]
+        else:
+            install_dir = str(ROOT_DIR)
+
+        try:
+            apple_script = (
+                f'tell application "Terminal" to do script '
+                f'"bash \\"{script}\\" \\"{install_dir}\\""'
+            )
+            subprocess.Popen(["osascript", "-e", apple_script])
+            self.log("[INFO] Launched setup_macos.sh in Terminal.")
+            messagebox.showinfo(
+                "Setup Launched",
+                "The dependency setup script has been launched in Terminal.\n\n"
+                "This will install R, Quarto, TinyTeX, and R packages.\n"
+                "It may take 10\u201330 minutes.\n\n"
+                "A notification will appear when setup is complete.",
+            )
+        except Exception as e:
+            self.log(f"[ERROR] Failed to launch setup_macos.sh: {e}")
+            messagebox.showerror(
+                "Launch Failed",
+                f"Could not open Terminal to run setup:\n{e}\n\n"
+                f'Run manually:\n  bash "{script}" "{install_dir}"',
+            )
