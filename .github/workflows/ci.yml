@@ -740,6 +740,7 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           gh release create "v${{ needs.version-check.outputs.version }}" \
+            --repo "${{ github.repository }}" \
             --title "v${{ needs.version-check.outputs.version }}" \
             --generate-notes \
             release-assets/*
