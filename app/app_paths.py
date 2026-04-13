@@ -39,6 +39,8 @@ def _data_root() -> Path:
     if getattr(sys, "frozen", False):
         if sys.platform == "win32":
             return Path(os.environ.get("APPDATA", str(Path.home()))) / "ResilienceScan"
+        if sys.platform == "darwin":
+            return Path.home() / "Library" / "Application Support" / "ResilienceScan"
         return Path.home() / ".local" / "share" / "resiliencescan"
     return Path(__file__).resolve().parents[1]
 

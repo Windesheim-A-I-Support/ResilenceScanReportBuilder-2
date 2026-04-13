@@ -123,6 +123,8 @@ jobs:
             artifact: windows
           - os: ubuntu-latest
             artifact: linux
+          - os: macos-latest
+            artifact: macos
     runs-on: ${{ matrix.os }}
     env:
       APP_VERSION: ${{ needs.version-check.outputs.version }}
@@ -150,6 +152,10 @@ jobs:
         run: |
           sudo apt-get update -qq
           sudo apt-get install -y --no-install-recommends python3-tk tk-dev
+
+      - name: Install macOS Tcl/Tk for tkinter
+        if: runner.os == 'macOS'
+        run: brew install tcl-tk || true
 
       # ── Windows ──────────────────────────────────────────────────────────────
       - name: Write _version.py
@@ -377,6 +383,31 @@ jobs:
           chmod 755 "${DEB_ROOT}/DEBIAN/postinst"
           dpkg-deb --build --root-owner-group "${DEB_ROOT}" \
             "dist/${REPO_NAME}-${APP_VERSION}-amd64.deb"
+
+      # ── macOS ─────────────────────────────────────────────────────────────────
+      - name: Build macOS app (onedir)
+        if: runner.os == 'macOS'
+        run: |
+          pyinstaller --clean --noconfirm --onedir \
+            --name "$REPO_NAME" \
+            --hidden-import tkinter \
+            --hidden-import _tkinter \
+            --add-data "ResilienceReport.qmd:." \
+            --add-data "SCROLReport.qmd:." \
+            --add-data "img:img" \
+            --add-data "tex:tex" \
+            --add-data "_extensions:_extensions" \
+            --add-data "references.bib:." \
+            --add-data "QTDublinIrish.otf:." \
+            --add-data "packaging/setup_macos.sh:." \
+            app/main.py
+
+      - name: Package macOS tarball
+        if: runner.os == 'macOS'
+        run: |
+          ARCH=$(uname -m)
+          tar -czf "dist/${REPO_NAME}-${APP_VERSION}-macos-${ARCH}.tar.gz" \
+            -C dist "${REPO_NAME}"
 
       - uses: actions/upload-artifact@v4
         with:
@@ -626,6 +657,8 @@ jobs:
           | Linux | [.deb (Ubuntu/Debian)]({base}/{repo_name}-{ver}-amd64.deb) |
           | Linux | [AppImage]({base}/{repo_name}-{ver}-x86_64.AppImage) |
           | Linux | [Tarball (.tar.gz)]({base}/{repo_name}-{ver}-linux-amd64.tar.gz) |
+          | macOS | [Tarball (.tar.gz, Apple Silicon)]({base}/{repo_name}-{ver}-macos-arm64.tar.gz) |
+          | macOS | [Tarball (.tar.gz, Intel)]({base}/{repo_name}-{ver}-macos-x86_64.tar.gz) |
           <!-- DOWNLOAD_LINKS_END -->"""
 
           text = open("README.md", encoding="utf-8").read()

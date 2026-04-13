@@ -88,6 +88,15 @@ def _find_rscript() -> str | None:
             matches = sorted(glob.glob(pattern), reverse=True)  # newest first
             if matches:
                 return matches[0]
+    elif sys.platform == "darwin":
+        candidates = [
+            "/opt/homebrew/bin/Rscript",  # Homebrew (Apple Silicon)
+            "/usr/local/bin/Rscript",  # Homebrew (Intel)
+            "/Library/Frameworks/R.framework/Versions/Current/Resources/bin/Rscript",  # CRAN pkg
+        ]
+        for c in candidates:
+            if os.path.exists(c):
+                return c
     return None
 
 
@@ -100,6 +109,15 @@ def _find_quarto() -> str | None:
         fixed = r"C:\Program Files\Quarto\bin\quarto.exe"
         if os.path.exists(fixed):
             return fixed
+    elif sys.platform == "darwin":
+        candidates = [
+            "/opt/homebrew/bin/quarto",  # Homebrew (Apple Silicon)
+            "/usr/local/bin/quarto",  # Homebrew (Intel)
+            "/Applications/quarto/bin/quarto",  # Official .pkg installer
+        ]
+        for c in candidates:
+            if os.path.exists(c):
+                return c
     return None
 
 
@@ -152,8 +170,22 @@ def _find_tlmgr() -> str | None:
         for c in candidates:
             if c and os.path.exists(c):
                 return c
-    elif sys.platform.startswith("linux") or sys.platform == "darwin":
-        # Quarto 1.4+ tools dir on Linux/Mac
+    elif sys.platform == "darwin":
+        home = str(Path.home())
+        darwin_candidates = [
+            os.path.join(
+                home,
+                "Library/Application Support/quarto/tools/tinytex/bin/universal-darwin/tlmgr",
+            ),
+            os.path.join(home, ".TinyTeX/bin/universal-darwin/tlmgr"),
+            "/usr/local/bin/tlmgr",
+            "/opt/homebrew/bin/tlmgr",
+        ]
+        for c in darwin_candidates:
+            if os.path.exists(c):
+                return c
+    elif sys.platform.startswith("linux"):
+        # Quarto 1.4+ tools dir on Linux
         home = str(Path.home())
         linux_candidates = [
             os.path.join(
@@ -161,10 +193,6 @@ def _find_tlmgr() -> str | None:
             ),
             os.path.join(
                 home, ".local/share/quarto/tools/tinytex/bin/aarch64-linux/tlmgr"
-            ),
-            os.path.join(
-                home,
-                "Library/Application Support/quarto/tools/tinytex/bin/universal-darwin/tlmgr",
             ),
         ]
         for c in linux_candidates:
@@ -177,6 +205,8 @@ def _setup_flag_dir() -> Path:
     """Return the directory where setup_running.flag / setup_complete.flag are written."""
     if sys.platform == "win32":
         return Path(os.environ.get("PROGRAMDATA", "C:/ProgramData")) / "ResilienceScan"
+    if sys.platform == "darwin":
+        return Path.home() / "Library" / "Application Support" / "ResilienceScan"
     return Path("/opt/ResilenceScanReportBuilder")
 
 

@@ -81,6 +81,41 @@ def test_frozen_win32_no_appdata_falls_back_to_home(monkeypatch):
 
 
 # ---------------------------------------------------------------------------
+# frozen + darwin
+# ---------------------------------------------------------------------------
+
+
+def test_frozen_darwin_uses_library_path(monkeypatch):
+    """Frozen+darwin: result is ~/Library/Application Support/ResilienceScan."""
+    monkeypatch.setattr(sys, "frozen", True, raising=False)
+    monkeypatch.setattr(sys, "platform", "darwin")
+
+    import utils.path_utils as m
+
+    importlib.reload(m)
+    result = m.get_user_base_dir()
+    assert (
+        result
+        == pathlib.Path.home() / "Library" / "Application Support" / "ResilienceScan"
+    )
+
+
+def test_frozen_darwin_not_appdata(monkeypatch, tmp_path):
+    """Frozen+darwin should NOT use APPDATA or .local/share."""
+    monkeypatch.setenv("APPDATA", str(tmp_path))
+    monkeypatch.setattr(sys, "frozen", True, raising=False)
+    monkeypatch.setattr(sys, "platform", "darwin")
+
+    import utils.path_utils as m
+
+    importlib.reload(m)
+    result = m.get_user_base_dir()
+    assert "AppData" not in str(result)
+    assert ".local" not in str(result)
+    assert "Library" in str(result)
+
+
+# ---------------------------------------------------------------------------
 # frozen + linux
 # ---------------------------------------------------------------------------
 

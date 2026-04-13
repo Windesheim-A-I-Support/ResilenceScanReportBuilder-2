@@ -31,7 +31,7 @@ python scripts/make_sample_data.py
 
 ## Release workflow
 
-Bump `version` in `pyproject.toml` and push to `main`. CI detects no git tag `v<version>` and fires the build matrix. **Do not create tags manually.** macOS is not a target — only Windows and Linux.
+Bump `version` in `pyproject.toml` and push to `main`. CI detects no git tag `v<version>` and fires the build matrix. **Do not create tags manually.** Targets: Windows, Linux, and macOS.
 
 ---
 
@@ -169,11 +169,12 @@ emails via Outlook COM (Windows) or SMTP fallback (Office365)
 | M55 | GUI audit: removed dead "Run Quality Dashboard" / "Run Data Cleaner" buttons (scripts missing) |
 | M56 | GUI visual upgrade: sv-ttk Sun Valley theme, card-style stats, Segoe UI fonts |
 | M57 | Email sender profiles: named profiles in config.yml, profile selector in SMTP tab, "Sending from:" in Send tab |
+| M58 | macOS support: platform paths, tool discovery (R/Quarto/TinyTeX), setup_macos.sh, CI build matrix |
 
-**Current version: v0.21.57 — 268 tests, ruff clean**
+**Current version: v0.22.0 — 270 tests, ruff clean**
 
 ---
 
 ## Active milestones
 
-All milestones M1–M57 complete.
+All milestones M1–M58 complete.
