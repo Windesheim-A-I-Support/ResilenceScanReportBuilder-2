@@ -18,7 +18,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - name: Hello
-        run: echo "alive on ${{ matrix.os }}"
+        run: echo "alive"
 
   version-check:
     needs: test
@@ -47,3 +47,30 @@ jobs:
             echo "release=true" >> "$GITHUB_OUTPUT"
             echo "version=${VERSION}" >> "$GITHUB_OUTPUT"
           fi
+
+  build:
+    needs: version-check
+    if: needs.version-check.outputs.release == 'true'
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: windows-latest
+            artifact: windows
+          - os: ubuntu-latest
+            artifact: linux
+    runs-on: ${{ matrix.os }}
+    env:
+      APP_VERSION: ${{ needs.version-check.outputs.version }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Set repo name
+        shell: bash
+        run: echo "REPO_NAME=${GITHUB_REPOSITORY#*/}" >> "$GITHUB_ENV"
+      - name: Build placeholder
+        run: echo "build ${{ matrix.artifact }}"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: release-${{ matrix.artifact }}
+          path: dist/*
+          if-no-files-found: ignore
