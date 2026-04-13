@@ -240,15 +240,25 @@ jobs:
           # ── TinyTeX ─────────────────────────────────────────────────────
           echo "Installing TinyTeX via Quarto..."
           "$QUARTO_INSTALL/bin/quarto" install tinytex --no-prompt
-          # Find TinyTeX directory
+          # Find TinyTeX directory — search broadly since quarto may use
+          # different paths across versions/platforms
           TINYTEX_SRC=""
           for candidate in \
             "$HOME/Library/Application Support/quarto/tools/tinytex" \
             "$HOME/.TinyTeX" \
-            "$HOME/.local/share/quarto/tools/tinytex"; do
+            "$HOME/.local/share/quarto/tools/tinytex" \
+            "$HOME/Library/Caches/quarto/tools/tinytex" \
+            "$QUARTO_INSTALL/tools/tinytex"; do
             if [ -d "$candidate" ]; then TINYTEX_SRC="$candidate"; break; fi
           done
+          # Fallback: locate via find under HOME (slow but reliable)
           if [ -z "$TINYTEX_SRC" ]; then
+            echo "Static candidates missed — searching with find..."
+            TINYTEX_SRC=$(find "$HOME" -maxdepth 8 -type d -name "tinytex" 2>/dev/null | head -1)
+          fi
+          if [ -z "$TINYTEX_SRC" ]; then
+            echo "TinyTeX dirs under HOME:"; find "$HOME" -maxdepth 8 -type d -name "TinyTeX" 2>/dev/null || true
+            echo "Quarto tools dir:"; ls "$QUARTO_INSTALL/tools/" 2>/dev/null || true
             echo "ERROR: TinyTeX directory not found after install"; exit 1
           fi
           echo "TinyTeX found at: $TINYTEX_SRC"
