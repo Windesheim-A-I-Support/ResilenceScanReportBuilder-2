@@ -170,7 +170,7 @@ jobs:
       - name: Bundle R, Quarto, TinyTeX and R packages (macOS)
         if: runner.os == 'macOS'
         env:
-          GITHUB_PAT: ${{ secrets.GITHUB_TOKEN }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           set -e
           ARCH=$(uname -m)
