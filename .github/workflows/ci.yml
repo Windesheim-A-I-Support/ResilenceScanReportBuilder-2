@@ -8,7 +8,8 @@ name: CI / Release
 on:
   push:
     branches: [main]
-  pull_request:
+  pull_request: {}
+  workflow_dispatch:
 
 permissions:
   contents: write
@@ -28,11 +29,11 @@ jobs:
           python-version: "3.13"
           cache: pip
 
-- name: Install system libraries (Linux only)
-          if: runner.os == 'Linux'
-          run: |
-            sudo apt-get update -qq
-            sudo apt-get install -y --no-install-recommends python3-tk tk-dev
+      - name: Install system libraries (Linux only)
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y --no-install-recommends python3-tk tk-dev
 
       - name: Install dependencies
         run: |
