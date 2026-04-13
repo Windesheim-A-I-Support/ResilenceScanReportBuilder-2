@@ -169,6 +169,8 @@ jobs:
       # find the bundled dylib when no system R is present.
       - name: Bundle R, Quarto, TinyTeX and R packages (macOS)
         if: runner.os == 'macOS'
+        env:
+          GITHUB_PAT: ${{ secrets.GITHUB_TOKEN }}
         run: |
           set -e
           ARCH=$(uname -m)
