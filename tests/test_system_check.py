@@ -142,7 +142,10 @@ def test_find_tlmgr_darwin_tinytex(monkeypatch, tmp_path):
     tlmgr = tmp_path / ".TinyTeX" / "bin" / "universal-darwin" / "tlmgr"
     tlmgr.parent.mkdir(parents=True)
     tlmgr.touch()
+    # Set both HOME (POSIX) and USERPROFILE (Windows) so Path.home() returns
+    # tmp_path on every runner platform.
     monkeypatch.setenv("HOME", str(tmp_path))
+    monkeypatch.setenv("USERPROFILE", str(tmp_path))
     monkeypatch.setattr(
         "gui_system_check.os.path.exists",
         lambda p: Path(p) == tlmgr,
@@ -168,7 +171,10 @@ def test_find_tlmgr_linux_quarto_tools(monkeypatch, tmp_path):
     )
     tlmgr.parent.mkdir(parents=True)
     tlmgr.touch()
+    # Set both HOME (POSIX) and USERPROFILE (Windows) so Path.home() returns
+    # tmp_path on every runner platform.
     monkeypatch.setenv("HOME", str(tmp_path))
+    monkeypatch.setenv("USERPROFILE", str(tmp_path))
     monkeypatch.setattr(
         "gui_system_check.os.path.exists",
         lambda p: Path(p) == tlmgr,
