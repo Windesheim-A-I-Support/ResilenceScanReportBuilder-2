@@ -259,3 +259,33 @@ def test_tracker_total_equals_sum(tmp_path, monkeypatch):
 
     stats = tracker.get_statistics()
     assert stats["total"] == stats["sent"] + stats["pending"] + stats["failed"]
+
+
+def test_tracker_get_all_returns_all_recipients(tmp_path, monkeypatch):
+    """get_all() returns every tracked recipient as a list of dicts."""
+    import email_tracker as et
+
+    monkeypatch.setattr(et, "_TRACKER_FILE", tmp_path / "email_tracker.json")
+    monkeypatch.setattr(et, "_DATA_DIR", tmp_path)
+
+    tracker = EmailTracker()
+    tracker.mark_sent("Acme", "Alice")
+    tracker.mark_failed("Beta", "Bob")
+
+    all_entries = tracker.get_all()
+    assert isinstance(all_entries, list)
+    assert len(all_entries) == 2
+    keys = {e["key"] for e in all_entries}
+    assert "Acme|Alice" in keys
+    assert "Beta|Bob" in keys
+
+
+def test_tracker_get_all_empty_when_no_recipients(tmp_path, monkeypatch):
+    """get_all() returns an empty list when no recipients are tracked."""
+    import email_tracker as et
+
+    monkeypatch.setattr(et, "_TRACKER_FILE", tmp_path / "email_tracker.json")
+    monkeypatch.setattr(et, "_DATA_DIR", tmp_path)
+
+    tracker = EmailTracker()
+    assert tracker.get_all() == []
