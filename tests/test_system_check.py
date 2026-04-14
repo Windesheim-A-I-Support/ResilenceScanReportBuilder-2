@@ -150,7 +150,12 @@ def test_find_tlmgr_darwin_tinytex(monkeypatch, tmp_path):
         "gui_system_check.os.path.exists",
         lambda p: Path(p) == tlmgr,
     )
-    assert gsc._find_tlmgr() == str(tlmgr)
+    # Compare as Path objects: _find_tlmgr() may return a mixed-slash string
+    # on Windows (os.path.join preserves forward slashes from the literal),
+    # while str(tlmgr) uses backslashes.  Path normalises both.
+    result = gsc._find_tlmgr()
+    assert result is not None
+    assert Path(result) == tlmgr
 
 
 def test_find_tlmgr_linux_quarto_tools(monkeypatch, tmp_path):
@@ -179,7 +184,12 @@ def test_find_tlmgr_linux_quarto_tools(monkeypatch, tmp_path):
         "gui_system_check.os.path.exists",
         lambda p: Path(p) == tlmgr,
     )
-    assert gsc._find_tlmgr() == str(tlmgr)
+    # Compare as Path objects: _find_tlmgr() may return a mixed-slash string
+    # on Windows (os.path.join preserves forward slashes from the literal),
+    # while str(tlmgr) uses backslashes.  Path normalises both.
+    result = gsc._find_tlmgr()
+    assert result is not None
+    assert Path(result) == tlmgr
 
 
 def test_find_tlmgr_not_found(monkeypatch):

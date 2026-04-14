@@ -208,7 +208,9 @@ def test_mailapp_send_calls_osascript(tmp_path):
     script = cmd[2]
     assert "Mail" in script
     assert "a@b.com" in script
-    assert str(pdf.resolve()) in script
+    # The path is embedded after _as_str escaping (backslash → double-backslash
+    # on Windows), so check the escaped form rather than str(pdf.resolve()).
+    assert MailAppEmailBackend._as_str(str(pdf.resolve())) in script
 
 
 def test_mailapp_send_nonzero_returncode_raises(tmp_path):
