@@ -755,7 +755,7 @@ jobs:
     runs-on: ubuntu-latest
     env:
       VER: ${{ needs.version-check.outputs.version }}
-      REPO: Windesheim-A-I-Support/ResilenceScanReportBuilder
+      REPO: ${{ github.repository }}
 
     steps:
       - uses: actions/checkout@v4
@@ -796,7 +796,6 @@ jobs:
           | Linux | [AppImage]({base}/{repo_name}-{ver}-x86_64.AppImage) |
           | Linux | [Tarball (.tar.gz)]({base}/{repo_name}-{ver}-linux-amd64.tar.gz) |
           | macOS | [Tarball (.tar.gz, Apple Silicon)]({base}/{repo_name}-{ver}-macos-arm64.tar.gz) |
-          | macOS | [Tarball (.tar.gz, Intel)]({base}/{repo_name}-{ver}-macos-x86_64.tar.gz) |
           <!-- DOWNLOAD_LINKS_END -->"""
 
           text = open("README.md", encoding="utf-8").read()
